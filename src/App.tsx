@@ -7,6 +7,7 @@ import { BotAppearancePicker } from './components/BotAppearancePicker'
 import { BotProfileSheet } from './components/BotProfileSheet'
 import { TasksView } from './components/TasksView'
 import { ConnectionSettings } from './components/ConnectionSettings'
+import { onBackButtonPress } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { flushSync } from 'react-dom'
 import { buildAttachmentPrompt, attachmentSummary } from './attachment-routing'
@@ -92,18 +93,26 @@ export default function App() {
   useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined
-    void getCurrentWindow().onCloseRequested(event => {
+    let unlistenAndroidBack: { unregister: () => Promise<void> } | undefined
+    const handleBack = async () => {
       const backEvent = new Event('hermes-mobile-back', { cancelable: true })
       window.dispatchEvent(backEvent)
-      if (backEvent.defaultPrevented) { event.preventDefault(); return }
+      if (backEvent.defaultPrevented) return true
       const navigation = navigationRef.current
-      if (navigation.profileSheet) { event.preventDefault(); setProfileSheet(false); return }
-      if (navigation.selected) { event.preventDefault(); setSelected(null); return }
-      if (navigation.settings) { event.preventDefault(); setSettings(false); return }
-      if (navigation.createOpen) { event.preventDefault(); setCreateOpen(false); return }
-      if (navigation.tab !== 'bots') { event.preventDefault(); setTab('bots') }
+      if (navigation.profileSheet) { setProfileSheet(false); return true }
+      if (navigation.selected) { setSelected(null); return true }
+      if (navigation.settings) { setSettings(false); return true }
+      if (navigation.createOpen) { setCreateOpen(false); return true }
+      if (navigation.tab !== 'bots') { setTab('bots'); return true }
+      return false
+    }
+    void getCurrentWindow().onCloseRequested(async event => {
+      if (await handleBack()) event.preventDefault()
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(() => {})
-    return () => { disposed = true; unlisten?.() }
+    void onBackButtonPress(async () => {
+      if (!(await handleBack()) && !disposed) await getCurrentWindow().close()
+    }).then(listener => { if (disposed) void listener.unregister(); else unlistenAndroidBack = listener }).catch(() => {})
+    return () => { disposed = true; unlisten?.(); void unlistenAndroidBack?.unregister() }
   }, [])
 
   useEffect(() => {
