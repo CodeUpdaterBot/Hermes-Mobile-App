@@ -49,7 +49,7 @@ function AboutHermesMobile({ back }: { back: () => void }) {
     <section className="about-hero">
       <div className="about-logo-card"><img src={HermesMobileLogo} alt="Hermes Mobile logo"/></div>
       <h1>Hermes Mobile</h1>
-      <p className="about-meta">A companion for Hermes Desktop <i aria-hidden="true">|</i> Version 0.1.0</p>
+      <p className="about-meta">A companion for Hermes Desktop <i aria-hidden="true">|</i> Version 0.1.1</p>
       <span>Control your Hermes workspace from wherever you are.</span>
     </section>
     <section className="about-story">
