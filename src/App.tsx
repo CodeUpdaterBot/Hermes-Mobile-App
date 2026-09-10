@@ -7,6 +7,7 @@ import { BotAppearancePicker } from './components/BotAppearancePicker'
 import { BotProfileSheet } from './components/BotProfileSheet'
 import { TasksView } from './components/TasksView'
 import { ConnectionSettings } from './components/ConnectionSettings'
+import { onBackButtonPress } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { flushSync } from 'react-dom'
 import { buildAttachmentPrompt, attachmentSummary } from './attachment-routing'
@@ -92,15 +93,26 @@ export default function App() {
   useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined
-    void getCurrentWindow().onCloseRequested(event => {
+    let unlistenAndroidBack: { unregister: () => Promise<void> } | undefined
+    const handleBack = async () => {
+      const backEvent = new Event('hermes-mobile-back', { cancelable: true })
+      window.dispatchEvent(backEvent)
+      if (backEvent.defaultPrevented) return true
       const navigation = navigationRef.current
-      if (navigation.profileSheet) { event.preventDefault(); setProfileSheet(false); return }
-      if (navigation.selected) { event.preventDefault(); setSelected(null); return }
-      if (navigation.settings) { event.preventDefault(); setSettings(false); return }
-      if (navigation.createOpen) { event.preventDefault(); setCreateOpen(false); return }
-      if (navigation.tab !== 'bots') { event.preventDefault(); window.dispatchEvent(new Event('hermes-mobile-back')) }
+      if (navigation.profileSheet) { setProfileSheet(false); return true }
+      if (navigation.selected) { setSelected(null); return true }
+      if (navigation.settings) { setSettings(false); return true }
+      if (navigation.createOpen) { setCreateOpen(false); return true }
+      if (navigation.tab !== 'bots') { setTab('bots'); return true }
+      return false
+    }
+    void getCurrentWindow().onCloseRequested(async event => {
+      if (await handleBack()) event.preventDefault()
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(() => {})
-    return () => { disposed = true; unlisten?.() }
+    void onBackButtonPress(async () => {
+      if (!(await handleBack()) && !disposed) await getCurrentWindow().close()
+    }).then(listener => { if (disposed) void listener.unregister(); else unlistenAndroidBack = listener }).catch(() => {})
+    return () => { disposed = true; unlisten?.(); void unlistenAndroidBack?.unregister() }
   }, [])
 
   useEffect(() => {
@@ -388,6 +400,15 @@ function LegacyConnectionSettings({ profiles, sessions, theme, setTheme, close, 
 
 function CreateWizard({ step, setStep, draft, setDraft, creating, error, close, finish }: { step: number; setStep: (step: number) => void; draft: DraftBot; setDraft: React.Dispatch<React.SetStateAction<DraftBot>>; creating: boolean; error: string; close: () => void; finish: () => void }) {
   const titles = ['Who is this bot?', 'Personality', 'Model', 'Look']
+  useEffect(() => {
+    const onMobileBack = (event: Event) => {
+      event.preventDefault()
+      if (step > 0) setStep(step - 1)
+      else close()
+    }
+    window.addEventListener('hermes-mobile-back', onMobileBack)
+    return () => window.removeEventListener('hermes-mobile-back', onMobileBack)
+  }, [close, setStep, step])
   const pickRole = (role: string) => { const [name, description] = roles[role]; setDraft(current => ({ ...current, role, name, description })) }
   return <main className="app wizard"><header><button className="icon-button" onClick={close}><X size={18}/></button><div className="progress">{[0, 1, 2, 3].map(item => <i className={item === step ? 'current' : ''} key={item}/>)}</div></header><section><h1>{titles[step]}</h1>{step === 0 && <><p>Name it and give it a job.</p><div className="chips">{Object.keys(roles).map(role => <button className={draft.role === role ? 'selected' : ''} onClick={() => pickRole(role)} key={role}>{role}</button>)}</div><Field label="NAME"><input value={draft.name} onChange={event => setDraft(current => ({ ...current, name: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}/><small>Lowercase profile handle, for example research-rabbit.</small></Field><Field label="WHAT SHOULD IT DO?"><input value={draft.description} onChange={event => setDraft(current => ({ ...current, description: event.target.value }))}/></Field></>}{step === 1 && <><p>Optional — shape how it thinks and talks.</p><div className="explain">This becomes the Bot’s real SOUL.md and loads into every conversation.</div><Field label="SOUL"><textarea value={draft.soul} onChange={event => setDraft(current => ({ ...current, soul: event.target.value }))}/></Field></>}{step === 2 && <><p>Optional — pin a model, or use the Hermes default.</p><button className={!draft.model ? 'model-option selected' : 'model-option'} onClick={() => setDraft(current => ({ ...current, model: '', provider: '' }))}><b>Use Hermes default</b><small>Inherits this PC’s provider and model.</small></button><button className={draft.model === 'gpt-5.6-sol' ? 'model-option selected' : 'model-option'} onClick={() => setDraft(current => ({ ...current, model: 'gpt-5.6-sol', provider: 'openai-api' }))}>openai-api/gpt-5.6-sol</button></>}{step === 3 && <><p>Choose an avatar that remains identical in Hermes Desktop and Mobile.</p><BotAppearancePicker name={draft.name} shape={draft.shape} onShape={shape => setDraft(current => ({ ...current, shape }))}/></>}{error && <p className="wizard-error">{error}</p>}</section><footer><button className="secondary" onClick={() => step ? setStep(step - 1) : close()}>{step ? 'Back' : 'Cancel'}</button><button className="primary" disabled={creating || (step === 0 && !draft.name)} onClick={() => step < 3 ? setStep(step + 1) : finish()}>{creating ? 'Creating…' : step < 3 ? 'Continue' : 'Create Bot'}</button></footer></main>
 }

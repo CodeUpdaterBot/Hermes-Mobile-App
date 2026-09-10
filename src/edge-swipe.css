@@ -1,0 +1,3 @@
+.edge-swipe-active,.edge-swipe-committed{will-change:transform;transform:translate3d(var(--edge-swipe-offset),0,0);transition:transform 170ms cubic-bezier(.22,1.25,.36,1)}
+.edge-swipe-committed{transition-timing-function:cubic-bezier(.32,.72,0,1)}
+@media (prefers-reduced-motion:reduce){.edge-swipe-active,.edge-swipe-committed{transition-duration:1ms}}

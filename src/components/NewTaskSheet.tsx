@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, Check, Plus, X } from 'lucide-react'
 
 import { errorMessage } from '../connection-state'
+import { useEdgeSwipeBack } from '../edge-swipe'
 import { createCronJob, instantiateCronBlueprint, loadCronBlueprints, loadCronDeliveryTargets, loadModelOptions, type AutomationBlueprint, type CronDeliveryTarget, type LiveProfile, type ModelOptions } from '../hermes'
 
 type Props = { profiles: LiveProfile[]; onClose: () => void; onCreated: () => Promise<void> }
@@ -9,6 +10,8 @@ const frequencies = [{ id: 'daily', label: 'Daily at 9:00 AM', schedule: '0 9 * 
 const titleizeBot = (value: string) => value.split(/[-_\s]+/).filter(Boolean).map(part => part[0].toUpperCase() + part.slice(1)).join(' ')
 
 export function NewTaskSheet({ profiles, onClose, onCreated }: Props) {
+  const shellRef = useRef<HTMLElement>(null)
+  useEdgeSwipeBack(shellRef, onClose)
   const [blueprints, setBlueprints] = useState<AutomationBlueprint[]>([])
   const [targets, setTargets] = useState<CronDeliveryTarget[]>([])
   const [modelOptions, setModelOptions] = useState<ModelOptions>({})
@@ -56,7 +59,7 @@ export function NewTaskSheet({ profiles, onClose, onCreated }: Props) {
     } catch (reason) { setError(errorMessage(reason, 'Hermes could not create this task.')) } finally { setSaving(false) }
   }
   const toggleDelivery = (id: string) => setDeliver(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])
-  return <main className="app task-create-sheet"><header className="task-create-head"><button className="round-control" onClick={onClose} aria-label="Close new task"><ArrowLeft size={18}/></button><span><b>New task</b><small>Schedule an automated Hermes prompt</small></span><button className="round-control" onClick={onClose} aria-label="Close new task"><X size={17}/></button></header><div className="task-create-scroll">
+  return <main ref={shellRef} className="app task-create-sheet"><header className="task-create-head"><button className="round-control" onClick={onClose} aria-label="Close new task"><ArrowLeft size={18}/></button><span><b>New task</b><small>Schedule an automated Hermes prompt</small></span><button className="round-control" onClick={onClose} aria-label="Close new task"><X size={17}/></button></header><div className="task-create-scroll">
     <FormLabel title="Start from" hint="Use a Hermes template or configure a custom task."><select value={template} onChange={event => setTemplate(event.target.value)}><option value="custom">Custom</option>{blueprints.map(item => <option key={item.key} value={item.key}>{item.title}</option>)}</select></FormLabel>
     <FormLabel title="Bot" hint="The task will be stored in this Bot’s cron schedule."><select value={bot} onChange={event => { const next = event.target.value; setBot(next); setDeliver(next ? [`bot-chat:${next}`] : []); setValues(current => ({ ...current, deliver: next ? `bot-chat:${next}` : '' })) }}>{profiles.map(profile => <option key={profile.name} value={profile.name}>{profile.display_name || titleizeBot(profile.name)}</option>)}</select></FormLabel>
     {selectedBlueprint ? <section className="task-template-note"><b>{selectedBlueprint.title}</b><span>{selectedBlueprint.description}</span></section> : <><FormLabel title="Name" optional><input value={name} onChange={event => setName(event.target.value)} placeholder="Morning briefing" /></FormLabel><FormLabel title="Prompt" hint="This is what Hermes runs on each scheduled execution."><textarea value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="Summarize my unread Slack threads and email me the top 5…" /></FormLabel></>}

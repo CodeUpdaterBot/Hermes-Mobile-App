@@ -10,6 +10,7 @@ import type { ToolActivity } from '../App'
 import { applySlashCompletion } from '../slash-routing'
 import { formatResponseStats } from '../message-stats'
 import { isExpectedVoiceCleanupError, VOICE_AUTOSEND_HOLD_MS } from '../voice-input'
+import { useEdgeSwipeBack } from '../edge-swipe'
 
 type Timeline = LiveMessage & { local?: boolean }
 type PendingAttachment = {
@@ -58,6 +59,8 @@ const formatFileSize = (size: number) => size < 1024 * 1024 ? `${Math.max(1, Mat
 const maxAttachmentBytes = 50 * 1024 * 1024
 
 export function ChatView({ session, conversationLoading, messages, settledAssistant, profiles, draft, setDraft, mentions, streaming, sending, toolActivities, error, back, refresh, openProfile, onSessionModelChange, submit, submitVoice, stop }: Props) {
+  const shellRef = useRef<HTMLElement>(null)
+  useEdgeSwipeBack(shellRef, back)
   const threadRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -435,7 +438,7 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
   }
   const editMessage = (text: string) => { setDraft(text); requestAnimationFrame(() => textareaRef.current?.focus()) }
 
-  return <main className="app chat-shell" onDragOver={onDragOver} onDrop={onDrop} onDragLeave={() => setDraggingFiles(false)}>
+  return <main ref={shellRef} className="app chat-shell" onDragOver={onDragOver} onDrop={onDrop} onDragLeave={() => setDraggingFiles(false)}>
     {draggingFiles && <div className="file-drop-overlay" aria-live="polite"><div><Paperclip size={24}/><b>Drop files to upload to Hermes</b><span>Documents stay on the host for Hermes to read</span></div></div>}
     <header className="chat-header">
       <button className="round-control" onClick={back} aria-label="Back"><ArrowDown size={18} className="back-chevron"/></button>

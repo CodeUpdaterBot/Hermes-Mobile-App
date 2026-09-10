@@ -3,6 +3,7 @@ import { ArrowLeft, CalendarClock, ChevronRight, Pause, Pencil, Play, Plus, Refr
 
 import { NewTaskSheet } from './NewTaskSheet'
 import { loadCronJob, loadCronJobs, loadCronRuns, triggerCronJob, updateCronPrompt, updateCronJob, type CronJob, type CronRun, type LiveProfile } from '../hermes'
+import { useEdgeSwipeBack } from '../edge-swipe'
 
 type Props = { back: () => void; profiles: LiveProfile[] }
 const jobTitle = (job: CronJob) => (job.name || 'Untitled task').replace(/^\[bot:[^\]]+\]\s*/i, '')
@@ -46,6 +47,7 @@ export function TasksView({ back, profiles }: Props) {
   const [pullRefreshing, setPullRefreshing] = useState(false)
   const scrollRef = useRef<HTMLElement | null>(null)
   const pullStartRef = useRef<number | null>(null)
+  useEdgeSwipeBack(scrollRef, back, !selected && !createOpen)
   const optimisticJobsRef = useRef(new Map<string, CronJob>())
   const scopeKey = profiles.map(profile => profile.name).sort().join('|')
   const refresh = async () => {
@@ -71,10 +73,10 @@ export function TasksView({ back, profiles }: Props) {
     try { await refresh() } finally { setPullRefreshing(false) }
   }
   useEffect(() => {
-    const onMobileBack = () => {
-      if (selected) setSelected(null)
-      else if (createOpen) setCreateOpen(false)
-      else back()
+    const onMobileBack = (event: Event) => {
+      if (selected) { event.preventDefault(); setSelected(null) }
+      else if (createOpen) { event.preventDefault(); setCreateOpen(false) }
+      else { event.preventDefault(); back() }
     }
     window.addEventListener('hermes-mobile-back', onMobileBack)
     return () => window.removeEventListener('hermes-mobile-back', onMobileBack)
@@ -138,6 +140,8 @@ function DeleteTaskModal({ job, deleting, onCancel, onConfirm }: { job: CronJob;
   return <div className="task-modal-backdrop" role="presentation" onMouseDown={event => { if (!deleting && event.target === event.currentTarget) onCancel() }}><section className="task-delete-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-task-title" aria-describedby="delete-task-message"><Trash2 size={22}/><h2 id="delete-task-title">Delete scheduled task?</h2><p id="delete-task-message">Delete “{jobTitle(job)}”? This will remove its schedule and prevent future runs.</p><footer><button disabled={deleting} onClick={onCancel}>Keep task</button><button className="delete" disabled={deleting} onClick={onConfirm}><Trash2 size={15}/>{deleting ? 'Deleting…' : 'Delete task'}</button></footer></section></div>
 }
 function TaskDetail({ job, busy, back, onRefresh, onToggle, onTrigger }: { job: CronJob; busy: string; back: () => void; onRefresh: () => Promise<void>; onToggle: (job: CronJob) => Promise<void>; onTrigger: (job: CronJob) => Promise<void> }) {
+  const shellRef = useRef<HTMLElement>(null)
+  useEdgeSwipeBack(shellRef, back)
   const [runs, setRuns] = useState<CronRun[] | null>(null)
   const [error, setError] = useState('')
   const [editPromptOpen, setEditPromptOpen] = useState(false)
@@ -149,5 +153,5 @@ function TaskDetail({ job, busy, back, onRefresh, onToggle, onTrigger }: { job: 
   const savePrompt = async () => { if (promptDraft === (job.prompt || job.prompt_preview || '')) { setEditPromptOpen(false); return }; setSavingPrompt(true); setError(''); try { await updateCronPrompt(job.job_id, promptDraft, job.profile); setEditPromptOpen(false); await onRefresh() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Hermes could not save this prompt.') } finally { setSavingPrompt(false) } }
   const trigger = async () => { setError(''); try { await onTrigger(job); setRuns(await loadCronRuns(job.job_id, job.profile)) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Hermes could not trigger this task.') } }
   const toggle = async () => { setError(''); try { await onToggle(job) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Hermes could not update this task.') } }
-  return <main className="app task-detail"><header className="tasks-head"><button className="round-control" onClick={back} aria-label="Back to Tasks"><ArrowLeft size={18}/></button><b>Task details</b><button className="round-control" onClick={() => void onRefresh()} aria-label="Refresh task"><RefreshCw size={17}/></button></header><section className="task-detail-title"><div><i className={state}/><h1>{jobTitle(job)}</h1><em className={state}>{state}</em></div><div className="task-detail-actions"><button className="task-toggle" disabled={busy === `${job.job_id}:toggle`} onClick={() => void toggle()}>{paused ? <><Play size={14}/> Resume</> : <><Pause size={14}/> Pause</>}</button><button className="task-trigger" disabled={triggering} onClick={() => void trigger()}><Zap size={15}/>{triggering ? 'Running…' : 'Trigger now'}</button></div></section>{error && <p className="management-error">{error}</p>}<section className="task-detail-section"><b>Schedule</b><TaskMetadata job={job}/></section><section className="task-detail-section"><div className="task-detail-section-head"><b>Prompt</b><button className="prompt-edit-button" disabled={!job.prompt || savingPrompt} onClick={() => setEditPromptOpen(true)} aria-label={job.prompt ? 'Edit prompt' : 'Loading full prompt'}><Pencil size={14}/></button></div><pre>{job.prompt || job.prompt_preview || 'No prompt was provided.'}</pre></section><section className="task-detail-section"><b>Run history {runs ? `· ${runs.length}` : ''}</b>{runs === null ? <p>Loading run history…</p> : runs.length ? <div className="task-runs">{runs.map(run => <div key={run.id}><span>{run.title || run.preview || run.id}</span><small>{dateLabel(run.last_active || run.started_at)}</small></div>)}</div> : <p>No completed runs yet.</p>}</section>{editPromptOpen && <div className="task-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setEditPromptOpen(false) }}><section className="task-prompt-modal" role="dialog" aria-modal="true" aria-label="Edit task prompt"><header><b>Edit prompt</b><button onClick={() => setEditPromptOpen(false)} aria-label="Close prompt editor">×</button></header><textarea autoFocus value={promptDraft} onChange={event => setPromptDraft(event.target.value)} /><footer><button onClick={() => { setPromptDraft(job.prompt || job.prompt_preview || ''); setEditPromptOpen(false) }}>Cancel</button><button className="save" disabled={savingPrompt || !promptDraft.trim()} onClick={() => void savePrompt()}>{savingPrompt ? 'Saving…' : 'Save prompt'}</button></footer></section></div>}</main>
+  return <main ref={shellRef} className="app task-detail"><header className="tasks-head"><button className="round-control" onClick={back} aria-label="Back to Tasks"><ArrowLeft size={18}/></button><b>Task details</b><button className="round-control" onClick={() => void onRefresh()} aria-label="Refresh task"><RefreshCw size={17}/></button></header><section className="task-detail-title"><div><i className={state}/><h1>{jobTitle(job)}</h1><em className={state}>{state}</em></div><div className="task-detail-actions"><button className="task-toggle" disabled={busy === `${job.job_id}:toggle`} onClick={() => void toggle()}>{paused ? <><Play size={14}/> Resume</> : <><Pause size={14}/> Pause</>}</button><button className="task-trigger" disabled={triggering} onClick={() => void trigger()}><Zap size={15}/>{triggering ? 'Running…' : 'Trigger now'}</button></div></section>{error && <p className="management-error">{error}</p>}<section className="task-detail-section"><b>Schedule</b><TaskMetadata job={job}/></section><section className="task-detail-section"><div className="task-detail-section-head"><b>Prompt</b><button className="prompt-edit-button" disabled={!job.prompt || savingPrompt} onClick={() => setEditPromptOpen(true)} aria-label={job.prompt ? 'Edit prompt' : 'Loading full prompt'}><Pencil size={14}/></button></div><pre>{job.prompt || job.prompt_preview || 'No prompt was provided.'}</pre></section><section className="task-detail-section"><b>Run history {runs ? `· ${runs.length}` : ''}</b>{runs === null ? <p>Loading run history…</p> : runs.length ? <div className="task-runs">{runs.map(run => <div key={run.id}><span>{run.title || run.preview || run.id}</span><small>{dateLabel(run.last_active || run.started_at)}</small></div>)}</div> : <p>No completed runs yet.</p>}</section>{editPromptOpen && <div className="task-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setEditPromptOpen(false) }}><section className="task-prompt-modal" role="dialog" aria-modal="true" aria-label="Edit task prompt"><header><b>Edit prompt</b><button onClick={() => setEditPromptOpen(false)} aria-label="Close prompt editor">×</button></header><textarea autoFocus value={promptDraft} onChange={event => setPromptDraft(event.target.value)} /><footer><button onClick={() => { setPromptDraft(job.prompt || job.prompt_preview || ''); setEditPromptOpen(false) }}>Cancel</button><button className="save" disabled={savingPrompt || !promptDraft.trim()} onClick={() => void savePrompt()}>{savingPrompt ? 'Saving…' : 'Save prompt'}</button></footer></section></div>}</main>
 }
