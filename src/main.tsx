@@ -12,5 +12,6 @@ import './management.css'
 import './appearance-picker.css'
 import './theme.css'
 import './connection-settings.css'
+import './edge-swipe.css'
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>)
