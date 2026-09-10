@@ -122,8 +122,8 @@ These are planned directions for making Hermes Mobile an even richer companion f
 
 ### Mobile interaction & design
 
-- [ ] **Gestures and swipe navigation** — Add mobile-native gestures throughout the app, including Android edge/back gestures and intuitive swipe interactions for moving between screens and task/chat surfaces.
-- [ ] **Better Android Back and iOS navigation parity** — Make system Back, swipe-back, modal dismissal, nested task screens, and chat navigation feel consistent across Android, iOS, and desktop.
+- ✅ **Gestures and swipe navigation** — Add mobile-native gestures throughout the app, including Android edge/back gestures and intuitive swipe interactions for moving between screens and task/chat surfaces. **Thanks @SteStein.com**
+- ✅ **Better Android Back and iOS navigation parity** — Make system Back, swipe-back, modal dismissal, nested task screens, and chat navigation feel consistent across Android, iOS, and desktop. **Thanks @SteStein.com**
 - [ ] **Native-feeling motion and interaction polish** — Build the spring-damped animations, gesture settling, transition physics, haptics, and other small interaction niceties that native mobile apps often provide automatically, but that Hermes Mobile must deliberately implement across its Tauri surfaces.
 
 ### Platform, files & host connectivity
