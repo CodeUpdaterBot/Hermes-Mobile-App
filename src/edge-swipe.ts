@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from 'react'
 
-export const EDGE_SWIPE_START_PX = 32
+export const EDGE_SWIPE_START_RATIO = .5
 export const EDGE_SWIPE_COMMIT_PX = 88
 export const EDGE_SWIPE_MAX_OFFSET_PX = 140
 
@@ -25,7 +25,7 @@ export function useEdgeSwipeBack<T extends HTMLElement>(ref: RefObject<T | null>
       committed = false
     }
     const onTouchStart = (event: TouchEvent) => {
-      if (event.touches.length !== 1 || event.touches[0].clientX > EDGE_SWIPE_START_PX) return
+      if (event.touches.length !== 1 || event.touches[0].clientX > window.innerWidth * EDGE_SWIPE_START_RATIO) return
       const target = event.target as HTMLElement | null
       if (target?.closest('input,textarea,select,button,[data-no-edge-swipe]')) return
       window.clearTimeout(resetTimer)

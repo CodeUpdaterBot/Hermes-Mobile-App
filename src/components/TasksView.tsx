@@ -73,10 +73,10 @@ export function TasksView({ back, profiles }: Props) {
     try { await refresh() } finally { setPullRefreshing(false) }
   }
   useEffect(() => {
-    const onMobileBack = () => {
-      if (selected) setSelected(null)
-      else if (createOpen) setCreateOpen(false)
-      else back()
+    const onMobileBack = (event: Event) => {
+      if (selected) { event.preventDefault(); setSelected(null) }
+      else if (createOpen) { event.preventDefault(); setCreateOpen(false) }
+      else { event.preventDefault(); back() }
     }
     window.addEventListener('hermes-mobile-back', onMobileBack)
     return () => window.removeEventListener('hermes-mobile-back', onMobileBack)

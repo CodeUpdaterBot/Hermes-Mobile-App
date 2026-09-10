@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { ArrowLeft, Check, ChevronRight, RefreshCw, Search, Wrench } from 'lucide-react'
 
 import { installHubSkill, loadProfileDetails, searchHubSkills, setProfileCapabilities, type Capability, type LiveProfile, type LiveSession, type ProfileDetails, type SkillSearchResult } from '../hermes'
 import { BotAvatar } from './BotAvatar'
+import { useEdgeSwipeBack } from '../edge-swipe'
 
 type Props = { profile?: LiveProfile; session: LiveSession; onBack: () => void; onUpdated: () => void }
 const titleize = (value: string) => value.split(/[-_]+/).filter(Boolean).map(part => part[0].toUpperCase() + part.slice(1)).join(' ')
 
 export function CapabilityManager({ profile, session, onBack, onUpdated }: Props) {
+  const shellRef = useRef<HTMLElement>(null)
+  useEdgeSwipeBack(shellRef, onBack)
   const [details, setDetails] = useState<ProfileDetails | null>(null)
   const [skills, setSkills] = useState<Capability[]>([])
   const [toolsets, setToolsets] = useState<Capability[]>([])
@@ -54,7 +57,7 @@ export function CapabilityManager({ profile, session, onBack, onUpdated }: Props
     finally { setInstalling('') }
   }
 
-  return <main className="app management-sheet">
+  return <main ref={shellRef} className="app management-sheet">
     <header className="management-head"><button className="round-control" onClick={onBack} aria-label="Back to Bot settings"><ArrowLeft size={18}/></button><b>Capabilities</b><button className="round-control" onClick={() => void reload()} aria-label="Refresh capabilities"><RefreshCw size={17}/></button></header>
     <section className="capability-context"><BotAvatar profile={profile} fallbackName={session.profile} variant="header"/><span><b>{botName}</b><small>Manage what this Bot can use</small></span></section>
     <div className="capability-search"><Search size={16}/><input value={query} onChange={event => { setQuery(event.target.value); setHubResults(null) }} onKeyDown={event => event.key === 'Enter' && void searchHub()} placeholder="Search installed skills or the Hub…"/><button disabled={!query.trim() || loading} onClick={() => void searchHub()}>Search</button></div>

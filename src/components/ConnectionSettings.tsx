@@ -4,6 +4,7 @@ import { ArrowLeft, CheckCircle2, Copy, ExternalLink, GitBranch, Globe2, Heart, 
 
 import HermesMobileAboutMark from '../assets/HermesMobileAboutMark.png'
 import { errorMessage, supportsBasicAuth } from '../connection-state'
+import { useEdgeSwipeBack } from '../edge-swipe'
 import { nativeSignIn, passwordSignIn, probeHermesGateway } from '../hermes'
 
 const HermesMobileLogo = HermesMobileAboutMark
@@ -41,7 +42,9 @@ function Header({ title, subtitle, back, compact = false }: { title: string; sub
 }
 
 function AboutHermesMobile({ back }: { back: () => void }) {
-  return <main className="app panel about-screen">
+  const shellRef = useRef<HTMLElement>(null)
+  useEdgeSwipeBack(shellRef, back)
+  return <main ref={shellRef} className="app panel about-screen">
     <Header title="" subtitle="" back={back} compact/>
     <section className="about-hero">
       <div className="about-logo-card"><img src={HermesMobileLogo} alt="Hermes Mobile logo"/></div>
@@ -68,6 +71,8 @@ function AboutHermesMobile({ back }: { back: () => void }) {
 }
 
 function PairingSettings({ back, onPaired, onPairingBusy, initialEndpoint }: { back: () => void; onPaired: (endpoint: string) => Promise<void>; onPairingBusy: (busy: boolean) => void; initialEndpoint?: string }) {
+  const shellRef = useRef<HTMLElement>(null)
+  useEdgeSwipeBack(shellRef, back)
   const [gatewayUrl, setGatewayUrl] = useState(initialEndpoint || '')
   const [checking, setChecking] = useState(false)
   const [verifiedEndpoint, setVerifiedEndpoint] = useState<string | null>(null)
@@ -124,7 +129,7 @@ function PairingSettings({ back, onPaired, onPairingBusy, initialEndpoint }: { b
       setCopied(true); window.setTimeout(() => setCopied(false), 1800)
     } catch { setResult({ tone: 'error', text: 'Clipboard access is unavailable. You can still follow the checklist below.' }) }
   }
-  return <main className="app panel pairing-screen">
+  return <main ref={shellRef} className="app panel pairing-screen">
     <Header title="Security & pairing" subtitle="Private access for your mobile device" back={back}/>
     <section className="pairing-hero">
       <div className="pairing-icon"><ShieldCheck size={28}/></div>
@@ -160,6 +165,8 @@ function PairingSettings({ back, onPaired, onPairingBusy, initialEndpoint }: { b
 }
 
 export function ConnectionSettings({ profiles, sessions, connected, endpoint, theme, setTheme, close, refresh, onPairingBusy, onPaired }: Props) {
+  const shellRef = useRef<HTMLElement>(null)
+  useEdgeSwipeBack(shellRef, close, true)
   const [page, setPage] = useState<Page>('root')
   const [showThemes, setShowThemes] = useState(false)
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle')
@@ -176,7 +183,7 @@ export function ConnectionSettings({ profiles, sessions, connected, endpoint, th
   if (page === 'about') return <AboutHermesMobile back={() => setPage('root')}/>
   if (page === 'pairing') return <PairingSettings back={() => setPage('root')} onPaired={onPaired} onPairingBusy={onPairingBusy} initialEndpoint={endpoint}/>
   const displayEndpoint = endpoint?.replace(/^https?:\/\//, '')
-  return <main className="app panel connection-screen">
+  return <main ref={shellRef} className="app panel connection-screen">
     <Header title="Connection" subtitle="Hermes Desktop host" back={close}/>
     <section className={`connection-card ${connected ? 'connected' : 'unpaired'}`}>
       <span className={`status-pill ${connected ? '' : 'disconnected'}`}>● {connected ? 'Connected' : 'Not connected'}</span>

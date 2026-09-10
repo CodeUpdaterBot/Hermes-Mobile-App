@@ -93,12 +93,15 @@ export default function App() {
     let disposed = false
     let unlisten: (() => void) | undefined
     void getCurrentWindow().onCloseRequested(event => {
+      const backEvent = new Event('hermes-mobile-back', { cancelable: true })
+      window.dispatchEvent(backEvent)
+      if (backEvent.defaultPrevented) { event.preventDefault(); return }
       const navigation = navigationRef.current
       if (navigation.profileSheet) { event.preventDefault(); setProfileSheet(false); return }
       if (navigation.selected) { event.preventDefault(); setSelected(null); return }
       if (navigation.settings) { event.preventDefault(); setSettings(false); return }
       if (navigation.createOpen) { event.preventDefault(); setCreateOpen(false); return }
-      if (navigation.tab !== 'bots') { event.preventDefault(); window.dispatchEvent(new Event('hermes-mobile-back')) }
+      if (navigation.tab !== 'bots') { event.preventDefault(); setTab('bots') }
     }).then(remove => { if (disposed) remove(); else unlisten = remove }).catch(() => {})
     return () => { disposed = true; unlisten?.() }
   }, [])

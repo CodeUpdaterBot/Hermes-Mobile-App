@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronRight, Cpu, FileText, Info, Pencil, Save, SlidersHorizontal, Wrench, X } from 'lucide-react'
 
 import { loadModelOptions, loadProfileDetails, setProfileDescription, setProfileModel, setProfileSoul, type LiveProfile, type LiveSession, type ModelOptions, type ProfileDetails } from '../hermes'
 import { BotAvatar } from './BotAvatar'
 import { CapabilityManager } from './CapabilityManager'
+import { useEdgeSwipeBack } from '../edge-swipe'
 
 type Props = { profile?: LiveProfile; session: LiveSession; onClose: () => void; onUpdated: () => void }
 const titleize = (value: string) => value.split(/[-_]+/).filter(Boolean).map(part => part[0].toUpperCase() + part.slice(1)).join(' ')
 
 export function BotProfileSheet({ profile, session, onClose, onUpdated }: Props) {
+  const shellRef = useRef<HTMLElement>(null)
+  useEdgeSwipeBack(shellRef, onClose)
   const [details, setDetails] = useState<ProfileDetails | null>(null)
   const [modelOptions, setModelOptions] = useState<ModelOptions>({})
   const [soulDraft, setSoulDraft] = useState('')
@@ -36,7 +39,7 @@ export function BotProfileSheet({ profile, session, onClose, onUpdated }: Props)
   const chooseDefaultModel = async (provider: string, model: string) => { setSavingModel(true); setError(''); try { await setProfileModel(session.profile, provider, model); await reload(); setChangingModel(false); onUpdated() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not update the Bot default model.') } finally { setSavingModel(false) } }
 
   if (managingCapabilities) return <CapabilityManager profile={profile} session={session} onBack={() => setManagingCapabilities(false)} onUpdated={() => { void reload(); onUpdated() }}/>
-  return <main className="app profile-sheet">
+  return <main ref={shellRef} className="app profile-sheet">
     <header className="profile-sheet-head"><button className="round-control" onClick={onClose} aria-label="Close Bot settings"><X size={18}/></button><b>Bot settings</b><span/></header>
     <section className="profile-identity"><BotAvatar profile={profile} fallbackName={session.profile} variant="welcome"/><h1>{botName}</h1><p>@{session.profile}</p></section>
     {error && <p className="profile-error">{error}</p>}
