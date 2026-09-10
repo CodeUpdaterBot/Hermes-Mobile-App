@@ -34,6 +34,15 @@ export function BotProfileSheet({ profile, session, onClose, onUpdated }: Props)
   const reload = async () => { const next = await loadProfileDetails(session.profile); setDetails(next); setSoulDraft(next.soul || ''); setDescriptionDraft(next.description || '') }
 
   useEffect(() => { let active = true; setError(''); void Promise.all([loadProfileDetails(session.profile), loadModelOptions(session.profile)]).then(([nextDetails, nextOptions]) => { if (active) { setDetails(nextDetails); setSoulDraft(nextDetails.soul || ''); setDescriptionDraft(nextDetails.description || ''); setModelOptions(nextOptions) } }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Could not load Bot settings.') }); return () => { active = false } }, [session.profile])
+  useEffect(() => {
+    if (!managingCapabilities) return
+    const onMobileBack = (event: Event) => {
+      event.preventDefault()
+      setManagingCapabilities(false)
+    }
+    window.addEventListener('hermes-mobile-back', onMobileBack)
+    return () => window.removeEventListener('hermes-mobile-back', onMobileBack)
+  }, [managingCapabilities])
   const saveSoul = async () => { if (!soulDirty) return; setSavingSoul(true); setError(''); try { await setProfileSoul(session.profile, soulDraft); await reload(); onUpdated() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save this Bot’s SOUL.md.') } finally { setSavingSoul(false) } }
   const saveAbout = async () => { if (!aboutDirty) { setEditingAbout(false); return }; setSavingAbout(true); setError(''); try { await setProfileDescription(session.profile, descriptionDraft); await reload(); setEditingAbout(false); onUpdated() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save this Bot’s description.') } finally { setSavingAbout(false) } }
   const chooseDefaultModel = async (provider: string, model: string) => { setSavingModel(true); setError(''); try { await setProfileModel(session.profile, provider, model); await reload(); setChangingModel(false); onUpdated() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not update the Bot default model.') } finally { setSavingModel(false) } }

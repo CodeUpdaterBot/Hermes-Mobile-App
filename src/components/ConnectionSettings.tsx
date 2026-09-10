@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, CheckCircle2, Copy, ExternalLink, GitBranch, Globe2, Heart, LoaderCircle, LockKeyhole, ShieldCheck, Smartphone, Wifi } from 'lucide-react'
 
 import HermesMobileAboutMark from '../assets/HermesMobileAboutMark.png'
@@ -170,6 +170,15 @@ export function ConnectionSettings({ profiles, sessions, connected, endpoint, th
   const [page, setPage] = useState<Page>('root')
   const [showThemes, setShowThemes] = useState(false)
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle')
+  useEffect(() => {
+    const onMobileBack = (event: Event) => {
+      if (page === 'root') return
+      event.preventDefault()
+      setPage('root')
+    }
+    window.addEventListener('hermes-mobile-back', onMobileBack)
+    return () => window.removeEventListener('hermes-mobile-back', onMobileBack)
+  }, [page])
   const syncNow = async () => {
     if (syncState === 'syncing') return
     setSyncState('syncing')
