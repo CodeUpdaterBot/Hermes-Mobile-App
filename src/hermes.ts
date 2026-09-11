@@ -143,6 +143,13 @@ export async function createProfile(input: { name: string; description: string; 
   }
 }
 
+export async function createSession(profile: string, baseUrl = activeHermes): Promise<string> {
+  const created = await gateway(baseUrl).call<{ session_id?: string; stored_session_id?: string }>('session.create', buildCanonicalSessionParams(profile))
+  const id = created.session_id || created.stored_session_id
+  if (!id) throw new Error('Hermes did not return a session for the new chat.')
+  return id
+}
+
 export async function loadMessages(sessionId: string, profile: string, baseUrl = activeHermes): Promise<LiveMessage[]> {
   const raw = await invoke<string>('hermes_session_messages', { baseUrl, sessionId, profile })
   return (JSON.parse(raw) as { messages: LiveMessage[] }).messages

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, BrainCircuit, Check, ChevronDown, FileText, LoaderCircle, Mic, Paperclip, RotateCw, Search, Sparkles, Square, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BrainCircuit, Check, ChevronDown, FileText, LoaderCircle, Mic, Paperclip, Plus, RotateCw, Search, Sparkles, Square, Trash2, X } from 'lucide-react'
 import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react'
 
 import { onError as onSttError, onResult as onSttResult, onStateChange as onSttStateChange, isAvailable as sttIsAvailable, requestPermission as requestSttPermission, startListening as startSttListening, stopListening as stopSttListening } from 'tauri-plugin-stt-api'
@@ -41,6 +41,8 @@ type Props = {
   submit: (attachments?: { name: string; refText: string }[]) => Promise<boolean>
   submitVoice: (text: string) => Promise<boolean>
   stop: () => void
+  startNewChat: () => void
+  startingChat: boolean
 }
 
 const reasoningChoices = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
@@ -58,7 +60,7 @@ const attachmentId = (file: File) => `${file.name}:${file.size}:${file.lastModif
 const formatFileSize = (size: number) => size < 1024 * 1024 ? `${Math.max(1, Math.round(size / 1024))} KB` : `${(size / (1024 * 1024)).toFixed(1)} MB`
 const maxAttachmentBytes = 50 * 1024 * 1024
 
-export function ChatView({ session, conversationLoading, messages, settledAssistant, profiles, draft, setDraft, mentions, streaming, sending, toolActivities, error, back, refresh, openProfile, onSessionModelChange, submit, submitVoice, stop }: Props) {
+export function ChatView({ session, conversationLoading, messages, settledAssistant, profiles, draft, setDraft, mentions, streaming, sending, toolActivities, error, back, refresh, openProfile, onSessionModelChange, submit, submitVoice, stop, startNewChat, startingChat }: Props) {
   const shellRef = useRef<HTMLElement>(null)
   useEdgeSwipeBack(shellRef, back)
   const threadRef = useRef<HTMLDivElement>(null)
@@ -443,6 +445,7 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
     <header className="chat-header">
       <button className="round-control" onClick={back} aria-label="Back"><ArrowDown size={18} className="back-chevron"/></button>
       <div className="chat-title"><button className="chat-identity-button" onClick={openProfile} aria-label={`Open ${botName} settings`}><BotAvatar profile={botProfile} fallbackName={session.profile} variant="header"/><span><b>{botName}</b><small>{botName} · {sending ? 'Working' : model || 'Hermes default'}</small></span></button></div>
+      <button className="round-control" onClick={() => void startNewChat()} disabled={startingChat} aria-label="Start new chat"><Plus size={16}/></button>
       <button className="round-control" onClick={refresh} aria-label="Refresh conversation"><RotateCw size={16}/></button>
     </header>
 
