@@ -136,10 +136,58 @@ If the host uses nonstandard locations, pass them directly:
 
 This installer requires Linux systemd, Tailscale, `curl`, `ss`, and `openssl`. It fails closed when a per-user systemd manager, authenticated gateway, private Tailscale bind, or listener ownership cannot be verified.
 
+If the installer exits silently with no output, the `.env` is missing the basic-auth keys it looks up first (known bug, see issue #2). Pre-seed them, then rerun:
+
+```bash
+printf 'HERMES_DASHBOARD_BASIC_AUTH_USERNAME=%s\nHERMES_DASHBOARD_BASIC_AUTH_PASSWORD=%s\nHERMES_DASHBOARD_BASIC_AUTH_SECRET=%s\n' \
+  "admin" "$(openssl rand -hex 16)" "$(openssl rand -base64 32)" >> ~/.hermes/.env
+chmod 600 ~/.hermes/.env
+```
+
+### Serve the gateway over HTTPS (required for phone chat)
+
+The phone app runs in a secure WebView context, so its chat socket must be `wss://`. A plain `http://100.x:9119` address will pass the gateway test and sign-in, but live chat can never connect. Expose the gateway over your Tailnet with TLS instead — no public internet involved:
+
+```bash
+sudo tailscale serve --bg --https 443 http://<tailscale-ip>:9119
+```
+
+The first run prints a one-time approval link for the Tailnet admin. The phone address becomes (no port):
+
+```text
+https://<machine>.<tailnet>.ts.net
+```
+
+The Hermes backend only answers for hostnames it trusts, so declare the public name and restart the gateway service afterwards, otherwise requests fail with `400 Invalid Host header`:
+
+```bash
+hermes config set dashboard.public_url https://<machine>.<tailnet>.ts.net
+systemctl --user restart hermes-mobile-gateway.service
+```
+
+Troubleshooting: if sign-in succeeds but chat still won't connect on a recent backend, its WebSocket origin guard is rejecting the app's origin even over `wss`. Front the gateway with a same-host reverse proxy that presents the public hostname in the `Host` and `Origin` headers (both must match `dashboard.public_url`), and point Tailscale Serve at the proxy. Example for nginx listening on loopback:
+
+```nginx
+location / {
+    proxy_pass http://<tailscale-ip>:9119;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host <machine>.<tailnet>.ts.net;
+    proxy_set_header Origin https://<machine>.<tailnet>.ts.net;
+}
+```
+
 ## Pair the phone
 
 After an installer succeeds, use the printed address in Hermes Mobile’s
-**Settings → Security & Pairing** screen:
+**Settings → Security & Pairing** screen. Prefer the HTTPS address when one is served (required for chat on phones):
+
+```text
+https://<machine>.<tailnet>.ts.net
+```
+
+or the direct Tailscale address (gateway test only — phone chat needs `wss://`):
 
 ```text
 http://<tailscale-ip>:9119
