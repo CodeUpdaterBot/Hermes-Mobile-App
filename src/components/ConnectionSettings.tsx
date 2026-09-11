@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, CheckCircle2, Copy, ExternalLink, GitBranch, Globe2, Heart, LoaderCircle, LockKeyhole, ShieldCheck, Smartphone, Wifi } from 'lucide-react'
 
 import HermesMobileAboutMark from '../assets/HermesMobileAboutMark.png'
-import { errorMessage, supportsBasicAuth } from '../connection-state'
+import { errorMessage, gatewayNeedsHttps, supportsBasicAuth } from '../connection-state'
 import { useEdgeSwipeBack } from '../edge-swipe'
 import { nativeSignIn, passwordSignIn, probeHermesGateway } from '../hermes'
 
@@ -93,6 +93,10 @@ function PairingSettings({ back, onPaired, onPairingBusy, initialEndpoint }: { b
       if (probeEpoch !== probeEpochRef.current) return
       const host = new URL(value).hostname.toLowerCase()
       const loopback = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]'
+      if (gatewayNeedsHttps(value, window.isSecureContext)) {
+        setResult({ tone: 'error', text: 'This gateway uses plain http://, but chat streaming in this secure app context requires an https:// gateway URL (e.g. via Tailscale Serve). Probe and sign-in may succeed over http, but live chat would be blocked — please switch the gateway to HTTPS and try again.' })
+        return
+      }
       if (!loopback && status.auth_required !== true) {
         setResult({ tone: 'error', text: 'This remote gateway is reachable but does not require authentication. Secure remote pairing requires an authenticated Hermes gateway.' })
         return
