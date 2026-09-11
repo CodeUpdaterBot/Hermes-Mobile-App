@@ -5,6 +5,8 @@ import type { DragEvent } from 'react'
 import { BotAvatar } from './BotAvatar'
 import { MessageCard, MarkdownContent } from './MarkdownContent'
 import type { ToolActivity } from '../App'
+import { applySlashCompletion } from '../slash-routing'
+import { SCROLL_FOLLOW_THRESHOLD, shouldStickToBottom } from '../scroll-follow'
 import { formatResponseStats } from '../message-stats'
 import { useEdgeSwipeBack } from '../edge-swipe'
 import { Composer, type ComposerDropFilesRef, type ComposerEditRequest } from './Composer'
@@ -39,6 +41,7 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
   const contentRef = useRef<HTMLDivElement>(null)
   const initializedRef = useRef(false)
   const followingRef = useRef(true)
+  const stickQueuedRef = useRef(false)
   const [following, setFollowing] = useState(true)
   const [unreadBelow, setUnreadBelow] = useState(0)
   const [revealedTimestampId, setRevealedTimestampId] = useState<number | null>(null)
@@ -64,9 +67,21 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
     const thread = threadRef.current
     if (!thread) return
     thread.scrollTo({ top: thread.scrollHeight, behavior })
-    followingRef.current = true
-    setFollowing(true)
-    setUnreadBelow(0)
+    if (!followingRef.current) {
+      followingRef.current = true
+      setFollowing(prev => (prev ? prev : true))
+    }
+    setUnreadBelow(prev => (prev === 0 ? prev : 0))
+  }
+
+  const scheduleStickToBottom = (behavior: ScrollBehavior = 'auto') => {
+    if (stickQueuedRef.current) return
+    stickQueuedRef.current = true
+    requestAnimationFrame(() => {
+      stickQueuedRef.current = false
+      if (!followingRef.current) return
+      scrollToLatest(behavior)
+    })
   }
 
   useEffect(() => {
@@ -93,7 +108,7 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
 
   useEffect(() => {
     if (!initializedRef.current) return
-    if (followingRef.current) requestAnimationFrame(() => scrollToLatest('auto'))
+    if (followingRef.current) scheduleStickToBottom('auto')
     else setUnreadBelow(count => count + 1)
   }, [messages.length, streaming])
 
@@ -101,7 +116,7 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
     const content = contentRef.current
     if (!content) return
     const observer = new ResizeObserver(() => {
-      if (followingRef.current) requestAnimationFrame(() => scrollToLatest('auto'))
+      if (followingRef.current) scheduleStickToBottom('auto')
     })
     observer.observe(content)
     return () => observer.disconnect()
@@ -110,10 +125,11 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
   const onScroll = () => {
     const thread = threadRef.current
     if (!thread) return
-    const nearEnd = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120
+    const nearEnd = shouldStickToBottom(thread.scrollHeight, thread.scrollTop, thread.clientHeight, SCROLL_FOLLOW_THRESHOLD)
+    if (nearEnd === followingRef.current) return
     followingRef.current = nearEnd
     setFollowing(nearEnd)
-    if (nearEnd) setUnreadBelow(0)
+    if (nearEnd) setUnreadBelow(prev => (prev === 0 ? prev : 0))
   }
 
   const pullRefresh = async () => {
