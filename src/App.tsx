@@ -15,7 +15,7 @@ import { buildBotRows, resolveCanonicalSessionId } from './live-model'
 import { settleAssistantResponse, type SettledAssistantResponse as SettledAssistantState } from './settled-assistant'
 import { isActiveChatTurn } from './chat-turn'
 import { errorMessage, RequestEpoch, selectRestoredEndpoint } from './connection-state'
-import { connectAndSubmit, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
+import { connectAndSubmit, createProfile, createSession, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
 
 type Tab = 'bots' | 'sessions' | 'tasks'
 type DraftBot = { role: string; name: string; description: string; soul: string; model: string; provider: string; shape: string }
@@ -69,6 +69,7 @@ export default function App() {
   const [streaming, setStreaming] = useState('')
   const [settledAssistant, setSettledAssistant] = useState<SettledAssistantState | null>(null)
   const [sending, setSending] = useState(false)
+  const [startingChat, setStartingChat] = useState(false)
   const [toolActivities, setToolActivities] = useState<ToolActivity[]>([])
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
@@ -239,7 +240,7 @@ export default function App() {
         if (requestId === sessionLoadRef.current && turnId === chatTurnGenerationRef.current) setError(reason instanceof Error ? reason.message : 'Could not load this Hermes conversation.')
       }
       finally {
-        const remaining = Math.max(0, 700 - (performance.now() - startedAt))
+        const remaining = Math.max(0, 250 - (performance.now() - startedAt))
         if (remaining) await new Promise(resolve => window.setTimeout(resolve, remaining))
         if (requestId === sessionLoadRef.current && turnId === chatTurnGenerationRef.current) setConversationLoading(false)
       }
@@ -316,6 +317,20 @@ export default function App() {
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not stop this Hermes turn.') }
   }
 
+  const startNewChat = async () => {
+    const profile = selectedRef.current?.profile
+    if (!profile || startingChat) return
+    setStartingChat(true)
+    setError('')
+    try {
+      const id = await createSession(profile)
+      const data = await refresh()
+      const created = data?.sessions.find(session => session.id === id && session.profile === profile)
+      await openSession(created || { id, title: 'New chat', preview: '', profile, last_active: Date.now() / 1000, unread: false })
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not start a new chat.') }
+    finally { setStartingChat(false) }
+  }
+
   const finishCreate = async () => {
     setCreating(true)
     setError('')
@@ -364,7 +379,7 @@ export default function App() {
   if (createOpen) return <CreateWizard step={createStep} setStep={setCreateStep} draft={botDraft} setDraft={setBotDraft} creating={creating} error={error} close={() => { setCreateOpen(false); setCreateStep(0); setError('') }} finish={() => void finishCreate()}/>
   if (settings) return <ConnectionSettings profiles={profiles.length} sessions={sessions.length} connected={connectionStatus === 'connected'} endpoint={activeEndpoint !== 'http://127.0.0.1:9119' ? activeEndpoint : undefined} theme={theme} setTheme={setTheme} close={() => setSettings(false)} refresh={() => refresh()} onPairingBusy={setPairingBusyState} onPaired={async endpoint => { const normalized = activateEndpoint(endpoint); const data = await refresh(normalized, true); if (!data) throw new Error(lastConnectionErrorRef.current || 'Signed in, but authenticated Hermes REST or live WebSocket verification failed.'); localStorage.setItem('hermes-mobile-active-endpoint', normalized) }}/>
   if (selected && profileSheet) return <BotProfileSheet profile={profiles.find(profile => profile.name === selected.profile)} session={selected} onClose={() => setProfileSheet(false)} onUpdated={() => void refresh()}/>
-  if (selected) return <ChatView session={selected} conversationLoading={conversationLoading} messages={messages} settledAssistant={settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null} profiles={profiles} draft={draft} setDraft={setDraft} mentions={mentions} streaming={streaming} sending={sending} toolActivities={toolActivities} error={error} back={() => setSelected(null)} refresh={() => void openSession(selected)} openProfile={() => setProfileSheet(true)} onSessionModelChange={model => setSelected(current => current ? { ...current, model } : current)} submit={submit} submitVoice={text => submit([], text)} stop={() => void stop()}/>
+  if (selected) return <ChatView session={selected} conversationLoading={conversationLoading} messages={messages} settledAssistant={settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null} profiles={profiles} draft={draft} setDraft={setDraft} mentions={mentions} streaming={streaming} sending={sending} toolActivities={toolActivities} error={error} back={() => setSelected(null)} refresh={() => void openSession(selected)} openProfile={() => setProfileSheet(true)} onSessionModelChange={model => setSelected(current => current ? { ...current, model } : current)} submit={submit} submitVoice={text => submit([], text)} stop={() => void stop()} startNewChat={() => void startNewChat()} startingChat={startingChat}/>
   if (tab === 'tasks') return <TasksView back={() => setTab('bots')} profiles={profiles}/>
 
   return <main className="app roster-shell">
