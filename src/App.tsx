@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
 
 import { ChatView } from './components/ChatView'
@@ -54,7 +54,6 @@ export default function App() {
   const sessionLoadRef = useRef(0)
   const [profileSheet, setProfileSheet] = useState(false)
   const [messages, setMessages] = useState<LiveMessage[]>([])
-  const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeEndpoint, setActiveEndpoint] = useState(() => selectRestoredEndpoint(null, localStorage.getItem('hermes-mobile-active-endpoint'), 'http://127.0.0.1:9119'))
@@ -68,7 +67,11 @@ export default function App() {
   const lastConnectionErrorRef = useRef('')
   const [streaming, setStreaming] = useState('')
   const [settledAssistant, setSettledAssistant] = useState<SettledAssistantState | null>(null)
+  const settledAssistantRef = useRef<SettledAssistantState | null>(null)
+  settledAssistantRef.current = settledAssistant
   const [sending, setSending] = useState(false)
+  const sendingRef = useRef(false)
+  sendingRef.current = sending
   const [toolActivities, setToolActivities] = useState<ToolActivity[]>([])
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
@@ -126,7 +129,7 @@ export default function App() {
     setActiveEndpoint(normalized)
     return normalized
   }
-  const refresh = async (requestedEndpoint = activeEndpointRef.current, supersede = false): Promise<{ profiles: LiveProfile[]; sessions: LiveSession[] } | null> => {
+  const refresh = useCallback(async (requestedEndpoint = activeEndpointRef.current, supersede = false): Promise<{ profiles: LiveProfile[]; sessions: LiveSession[] } | null> => {
     if ((pairingBusyRef.current || refreshInFlightRef.current) && !supersede) return null
     const endpoint = requestedEndpoint.replace(/\/$/, '')
     const epoch = refreshEpochRef.current.begin()
@@ -156,7 +159,7 @@ export default function App() {
         setLoading(false)
       }
     }
-  }
+  }, [])
   const pullRefreshRoster = async () => {
     setRosterPullRefreshing(true)
     try { await refresh() } finally { setRosterPullRefreshing(false) }
@@ -211,9 +214,8 @@ export default function App() {
   })).filter(row => `${row.profile.name} ${row.profile.display_name || ''} ${row.session?.preview || ''}`.toLowerCase().includes(query.toLowerCase())), [profiles, query])
 
   const visibleSessions = useMemo(() => sessions.filter(session => `${session.title} ${session.profile} ${session.preview}`.toLowerCase().includes(query.toLowerCase())), [sessions, query])
-  const mentions = useMemo(() => profiles.filter(profile => (`@${profile.name}`).includes((draft.match(/@[\w-]*$/)?.[0] || '').toLowerCase())), [profiles, draft])
 
-  const openSession = (session: LiveSession, latestUsage?: LiveUsage): Promise<void> => {
+  const openSession = useCallback((session: LiveSession, latestUsage?: LiveUsage): Promise<void> => {
     const requestId = ++sessionLoadRef.current
     const turnId = ++chatTurnGenerationRef.current
     const startedAt = performance.now()
@@ -244,22 +246,23 @@ export default function App() {
         if (requestId === sessionLoadRef.current && turnId === chatTurnGenerationRef.current) setConversationLoading(false)
       }
     })()
-  }
+  }, [])
 
-  const submit = async (attachmentRefs: { name: string; refText: string }[] = [], voiceText?: string): Promise<boolean> => {
-    if (!selected || sending) return false
+  const submit = useCallback(async (attachmentRefs: { name: string; refText: string }[] = [], rawText = ''): Promise<boolean> => {
+    const turnSession = selectedRef.current
+    if (!turnSession || sendingRef.current) return false
     const turnId = ++chatTurnGenerationRef.current
-    const turnSession = { id: selected.id, profile: selected.profile }
-    const isCurrentTurn = () => isActiveChatTurn(turnId, chatTurnGenerationRef.current, turnSession, selectedRef.current)
-    const text = (voiceText ?? draft).trim()
+    const turnSessionRef = { id: turnSession.id, profile: turnSession.profile }
+    const isCurrentTurn = () => isActiveChatTurn(turnId, chatTurnGenerationRef.current, turnSessionRef, selectedRef.current)
+    const text = rawText.trim()
     if (!text && !attachmentRefs.length) return false
     const prompt = buildAttachmentPrompt(text, attachmentRefs)
     let completionUsage: LiveUsage | undefined
     let finalText = ''
-    const priorSettled = settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null
+    const settledSnapshot = settledAssistantRef.current
+    const priorSettled = settledSnapshot?.sessionId === turnSession.id && settledSnapshot.profile === turnSession.profile ? settledSnapshot : null
     const priorAssistantMessage = priorSettled ? { id: -(Date.now() + 1), role: 'assistant' as const, content: priorSettled.content, usage: priorSettled.usage } : null
     const localUserMessage = { id: -Date.now(), role: 'user' as const, content: attachmentSummary(text, attachmentRefs) }
-    if (voiceText === undefined) setDraft('')
     setSettledAssistant(null)
     setError('')
     setSending(true)
@@ -267,7 +270,7 @@ export default function App() {
     setToolActivities([])
     setMessages(items => [...items, ...(priorAssistantMessage ? [priorAssistantMessage] : []), localUserMessage])
     try {
-      await connectAndSubmit(selected.id, selected.profile, prompt, (type, payload) => {
+      await connectAndSubmit(turnSession.id, turnSession.profile, prompt, (type, payload) => {
         if (!isCurrentTurn()) return
         if (type === 'message.delta') {
           finalText += String(payload.text || '')
@@ -289,13 +292,13 @@ export default function App() {
         if (type === 'error') setError(String(payload.message || 'Hermes could not complete that request.'))
       })
       if (!isCurrentTurn()) return false
-      const terminalAssistant = settleAssistantResponse(selected.id, selected.profile, finalText, completionUsage)
+      const terminalAssistant = settleAssistantResponse(turnSession.id, turnSession.profile, finalText, completionUsage)
       if (terminalAssistant) {
         setSettledAssistant(terminalAssistant)
         setSending(false)
         setStreaming('')
       } else {
-        await openSession(selected, completionUsage)
+        await openSession(turnSession, completionUsage)
       }
       await refresh()
       return true
@@ -308,13 +311,20 @@ export default function App() {
         setStreaming('')
       }
     }
-  }
+  }, [openSession, refresh])
 
-  const stop = async () => {
-    if (!selected || !sending) return
-    try { await interruptSession(selected.id) }
+  const stop = useCallback(async () => {
+    const turnSession = selectedRef.current
+    if (!turnSession || !sendingRef.current) return
+    try { await interruptSession(turnSession.id) }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not stop this Hermes turn.') }
-  }
+  }, [])
+
+  const submitVoice = useCallback((text: string) => submit([], text), [submit])
+
+  const handleSessionModelChange = useCallback((model: string) => {
+    setSelected(current => current ? { ...current, model } : current)
+  }, [])
 
   const finishCreate = async () => {
     setCreating(true)
@@ -364,7 +374,7 @@ export default function App() {
   if (createOpen) return <CreateWizard step={createStep} setStep={setCreateStep} draft={botDraft} setDraft={setBotDraft} creating={creating} error={error} close={() => { setCreateOpen(false); setCreateStep(0); setError('') }} finish={() => void finishCreate()}/>
   if (settings) return <ConnectionSettings profiles={profiles.length} sessions={sessions.length} connected={connectionStatus === 'connected'} endpoint={activeEndpoint !== 'http://127.0.0.1:9119' ? activeEndpoint : undefined} theme={theme} setTheme={setTheme} close={() => setSettings(false)} refresh={() => refresh()} onPairingBusy={setPairingBusyState} onPaired={async endpoint => { const normalized = activateEndpoint(endpoint); const data = await refresh(normalized, true); if (!data) throw new Error(lastConnectionErrorRef.current || 'Signed in, but authenticated Hermes REST or live WebSocket verification failed.'); localStorage.setItem('hermes-mobile-active-endpoint', normalized) }}/>
   if (selected && profileSheet) return <BotProfileSheet profile={profiles.find(profile => profile.name === selected.profile)} session={selected} onClose={() => setProfileSheet(false)} onUpdated={() => void refresh()}/>
-  if (selected) return <ChatView session={selected} conversationLoading={conversationLoading} messages={messages} settledAssistant={settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null} profiles={profiles} draft={draft} setDraft={setDraft} mentions={mentions} streaming={streaming} sending={sending} toolActivities={toolActivities} error={error} back={() => setSelected(null)} refresh={() => void openSession(selected)} openProfile={() => setProfileSheet(true)} onSessionModelChange={model => setSelected(current => current ? { ...current, model } : current)} submit={submit} submitVoice={text => submit([], text)} stop={() => void stop()}/>
+  if (selected) return <ChatView session={selected} conversationLoading={conversationLoading} messages={messages} settledAssistant={settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null} profiles={profiles} streaming={streaming} sending={sending} toolActivities={toolActivities} error={error} back={() => setSelected(null)} refresh={() => void openSession(selected)} openProfile={() => setProfileSheet(true)} onSessionModelChange={handleSessionModelChange} submit={submit} submitVoice={submitVoice} stop={stop}/>
   if (tab === 'tasks') return <TasksView back={() => setTab('bots')} profiles={profiles}/>
 
   return <main className="app roster-shell">
