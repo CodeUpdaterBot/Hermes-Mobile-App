@@ -1,11 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, BrainCircuit, Check, ChevronDown, FileText, LoaderCircle, Mic, Paperclip, RotateCw, Search, Sparkles, Square, Trash2, X } from 'lucide-react'
 import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react'
 
 import { onError as onSttError, onResult as onSttResult, onStateChange as onSttStateChange, isAvailable as sttIsAvailable, requestPermission as requestSttPermission, startListening as startSttListening, stopListening as stopSttListening } from 'tauri-plugin-stt-api'
 import { attachFile, completeSlash, loadModelOptions, setSessionModel, setSessionReasoning, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage, type ModelOptions, type SlashCompletion } from '../hermes'
 import { BotAvatar } from './BotAvatar'
-import { MessageCard, MarkdownContent } from './MarkdownContent'
+import { MessageCard, MarkdownContent, StreamingText } from './MarkdownContent'
 import type { ToolActivity } from '../App'
 import { applySlashCompletion } from '../slash-routing'
 import { formatResponseStats } from '../message-stats'
@@ -110,7 +110,6 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
   const allModels = useMemo(() => (modelOptions.providers || []).flatMap(item => (item.featured_models?.length ? item.featured_models : item.models || []).map(name => ({ name, provider: item.slug, providerName: item.name, authenticated: item.authenticated !== false }))).filter((item, index, rows) => rows.findIndex(other => other.provider === item.provider && other.name === item.name) === index), [modelOptions])
   const filteredModels = useMemo(() => allModels.filter(item => `${item.name} ${item.providerName}`.toLowerCase().includes(modelSearch.toLowerCase())), [allModels, modelSearch])
   const visibleError = error || controlError
-  const activeAssistantText = settledAssistant?.content || streaming
   const settledStats = settledAssistant ? formatResponseStats({ id: -1, role: 'assistant', content: settledAssistant.content, usage: settledAssistant.usage }) : null
   const showActiveAssistant = sending || Boolean(settledAssistant)
   const showConversationLoading = conversationLoading
@@ -436,7 +435,8 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
     if (!draft.trim() && !ready.length) return
     if (await submit(ready.map(item => ({ name: item.name, refText: item.refText })))) { setAttachments([]); setVoiceReview('') }
   }
-  const editMessage = (text: string) => { setDraft(text); requestAnimationFrame(() => textareaRef.current?.focus()) }
+  const editMessage = useCallback((text: string) => { setDraft(text); requestAnimationFrame(() => textareaRef.current?.focus()) }, [setDraft])
+  const revealMessageTimestamp = useCallback((id: number) => { setRevealedTimestampId(current => current === id ? null : id) }, [])
 
   return <main ref={shellRef} className="app chat-shell" onDragOver={onDragOver} onDrop={onDrop} onDragLeave={() => setDraggingFiles(false)}>
     {draggingFiles && <div className="file-drop-overlay" aria-live="polite"><div><Paperclip size={24}/><b>Drop files to upload to Hermes</b><span>Documents stay on the host for Hermes to read</span></div></div>}
@@ -453,9 +453,9 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
         {(pullDistance > 8 || pullRefreshing) && <div className="chat-pull-cue" style={{ height: `${pullRefreshing ? 34 : pullDistance}px` }}><RotateCw size={14} className={pullRefreshing ? 'pull-refresh-spinner' : ''}/><span>{pullRefreshing ? 'Refreshing…' : pullDistance >= 48 ? 'Release to refresh' : 'Pull to refresh'}</span></div>}
         {showConversationLoading && <section className="chat-empty-state conversation-loading" aria-live="polite" aria-label={`Loading ${botName} conversation`}><BotAvatar profile={botProfile} fallbackName={session.profile} variant="welcome"/><h1>{botName.toUpperCase()}</h1><p>{botName} · {model || 'Hermes Desktop'}</p><LoadingSpinner/></section>}
         {showEmptyState && <section className="chat-empty-state" aria-label={`Start a conversation with ${botName}`}><BotAvatar profile={botProfile} fallbackName={session.profile} variant="welcome"/><h1>{botName.toUpperCase()}</h1><p>Say something to get started.</p></section>}
-        {messages.map(message => <MessageCard key={message.id} message={message} onEdit={editMessage} profile={botProfile} fallbackName={session.profile} revealTimestamp={message.role === 'assistant' && revealedTimestampId === message.id} onRevealTimestamp={() => setRevealedTimestampId(current => current === message.id ? null : message.id)}/>)}
+        {messages.map(message => <MessageCard key={message.id} message={message} onEdit={editMessage} profile={botProfile} fallbackName={session.profile} revealTimestamp={message.role === 'assistant' && revealedTimestampId === message.id} onRevealTimestamp={revealMessageTimestamp}/>)}
         {toolActivities.map(activity => <ToolActivityRow activity={activity} key={activity.id}/>)}
-        {showActiveAssistant && <article className="message-row assistant-row live-response"><div className="assistant-message-layout"><BotAvatar profile={botProfile} fallbackName={session.profile} variant="message"/><div className="assistant-message-content">{sending && !streaming && <div className="live-label"><span className="stream-pulse"/> Thinking</div>}{activeAssistantText && <MarkdownContent>{activeAssistantText}</MarkdownContent>}<div className={`response-stats ${settledStats ? '' : 'response-stats-placeholder'}`} aria-label={settledStats ? 'Response generation statistics' : undefined} aria-hidden={settledStats ? undefined : true}>{settledStats || '\u00a0'}</div></div></div></article>}
+        {showActiveAssistant && <article className="message-row assistant-row live-response"><div className="assistant-message-layout"><BotAvatar profile={botProfile} fallbackName={session.profile} variant="message"/><div className="assistant-message-content">{sending && !streaming && <div className="live-label"><span className="stream-pulse"/> Thinking</div>}{settledAssistant ? <MarkdownContent>{settledAssistant.content}</MarkdownContent> : (streaming ? <StreamingText>{streaming}</StreamingText> : null)}<div className={`response-stats ${settledStats ? '' : 'response-stats-placeholder'}`} aria-label={settledStats ? 'Response generation statistics' : undefined} aria-hidden={settledStats ? undefined : true}>{settledStats || '\u00a0'}</div></div></div></article>}
       </div>
     </div>
 
@@ -496,8 +496,8 @@ function LoadingSpinner() {
   return <span className="conversation-spinner" role="status" aria-label="Loading"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></span>
 }
 
-function ToolActivityRow({ activity }: { activity: ToolActivity }) {
+const ToolActivityRow = memo(function ToolActivityRow({ activity }: { activity: ToolActivity }) {
   const running = activity.status === 'running'
   const failed = activity.status === 'failed'
   return <div className={`live-tool ${failed ? 'failed' : ''}`}><span className={running ? 'tool-spinner' : 'tool-state'}>{running ? '⋯' : failed ? '!' : '✓'}</span><span><b>{activity.name}</b><small>{running ? 'running…' : failed ? 'failed' : activity.summary || 'done'}</small></span>{activity.duration_s != null && <time>{activity.duration_s.toFixed(1)}s</time>}</div>
-}
+})

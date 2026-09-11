@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { memo, useState, type ReactNode } from 'react'
 import { Check, Copy, Lightbulb, Wrench } from 'lucide-react'
 import Markdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
@@ -37,16 +37,40 @@ export function MarkdownContent({ children }: { children: string }) {
   }}>{withMentionLinks}</Markdown></div>
 }
 
+// Fast path for live-streamed text: parsing markdown + syntax highlighting on
+// every token gets progressively slower as the reply grows and janks phones.
+// Plain text while streaming, full MarkdownContent once the turn settles.
+export const StreamingText = memo(function StreamingText({ children }: { children: string }) {
+  return <div className="streaming-text">{children}</div>
+})
+
 type MessageCardProps = {
   message: LiveMessage & { local?: boolean }
   onEdit: (text: string) => void
   profile?: LiveProfile
   fallbackName: string
   revealTimestamp: boolean
-  onRevealTimestamp: () => void
+  onRevealTimestamp: (id: number) => void
 }
 
-export function MessageCard({ message, onEdit, profile, fallbackName, revealTimestamp, onRevealTimestamp }: MessageCardProps) {
+// Only fields MessageCard actually renders. Session-driven fields such as
+// canonical_session/last_session change on every background refresh and must
+// NOT bust the memo or history re-renders on each poll.
+function profileRenderKey(profile?: LiveProfile) {
+  const meta = profile?.ui_meta?.['hermes-bots']
+  return [profile?.name ?? '', profile?.display_name ?? '', profile?.has_avatar ?? false, meta?.color ?? '', meta?.image ?? '', meta?.shape ?? ''].join('|')
+}
+
+export function areMessageCardPropsEqual(prev: MessageCardProps, next: MessageCardProps) {
+  return prev.message === next.message
+    && prev.revealTimestamp === next.revealTimestamp
+    && prev.fallbackName === next.fallbackName
+    && prev.onEdit === next.onEdit
+    && prev.onRevealTimestamp === next.onRevealTimestamp
+    && profileRenderKey(prev.profile) === profileRenderKey(next.profile)
+}
+
+function MessageCardView({ message, onEdit, profile, fallbackName, revealTimestamp, onRevealTimestamp }: MessageCardProps) {
   const [copied, setCopied] = useState(false)
   const [swipeStartX, setSwipeStartX] = useState<number | null>(null)
   const reasoningSummary = message.reasoning?.split('\n')[0].replace(/^#{1,6}\s*/, '').replace(/[*_`~]/g, '').trim()
@@ -58,7 +82,7 @@ export function MessageCard({ message, onEdit, profile, fallbackName, revealTime
     window.setTimeout(() => setCopied(false), 1400)
   }
   const finishSwipe = (x: number) => {
-    if (swipeStartX != null && swipeStartX - x > 42) onRevealTimestamp()
+    if (swipeStartX != null && swipeStartX - x > 42) onRevealTimestamp(message.id)
     setSwipeStartX(null)
   }
 
@@ -79,3 +103,5 @@ export function MessageCard({ message, onEdit, profile, fallbackName, revealTime
     {timestamp && <time className="message-time">{timestamp}</time>}
   </article>
 }
+
+export const MessageCard = memo(MessageCardView, areMessageCardPropsEqual)
