@@ -18,6 +18,23 @@ export function supportsBasicAuth(providers: unknown[] | undefined): boolean {
   )) === true
 }
 
+export function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1')
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+}
+
+export function gatewayNeedsHttps(url: string, secureContext: boolean): boolean {
+  if (!secureContext) return false
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  if (parsed.protocol.toLowerCase() !== 'http:') return false
+  return !isLoopbackHost(parsed.hostname)
+}
+
 export class RequestEpoch {
   private value = 0
 
