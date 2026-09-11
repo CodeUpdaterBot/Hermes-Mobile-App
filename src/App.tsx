@@ -69,6 +69,8 @@ export default function App() {
   const [streaming, setStreaming] = useState('')
   const [settledAssistant, setSettledAssistant] = useState<SettledAssistantState | null>(null)
   const [sending, setSending] = useState(false)
+  const sendingRef = useRef(sending)
+  sendingRef.current = sending
   const [toolActivities, setToolActivities] = useState<ToolActivity[]>([])
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
@@ -172,7 +174,10 @@ export default function App() {
       if (!active) return
       const endpoint = activateEndpoint(selectRestoredEndpoint(nativeEndpoint, localStorage.getItem('hermes-mobile-active-endpoint'), 'http://127.0.0.1:9119'))
       await refresh(endpoint, true)
-      if (active) timer = window.setInterval(() => void refresh(activeEndpointRef.current), 5_000)
+      if (active) timer = window.setInterval(() => {
+        if (document.hidden || sendingRef.current) return
+        void refresh(activeEndpointRef.current)
+      }, 5_000)
     }
     void bootstrap()
     return () => { active = false; if (timer) window.clearInterval(timer); refreshEpochRef.current.begin() }
