@@ -146,10 +146,34 @@ chmod 600 ~/.hermes/.env
 
 ### Serve the gateway over HTTPS (required for phone chat)
 
-The phone app runs in a secure WebView context, so its chat socket must be `wss://`. A plain `http://100.x:9119` address will pass the gateway test and sign-in, but live chat can never connect. Expose the gateway over your Tailnet with TLS instead — no public internet involved:
+The phone app runs in a secure WebView context, so its chat socket must be `wss://`. A plain `http://100.x:9119` address will pass the gateway test and sign-in, but live chat can never connect. Expose the gateway over your Tailnet with TLS instead — no public internet involved.
+
+Same-Tailnet access only: `tailscale serve --https` serves the URL to devices
+in the same Tailnet (subject to your Tailnet ACLs). Do not enable Tailscale
+Funnel or otherwise publish it to the public internet. Scope ACLs to the
+people/devices that should reach the host (for example, your own user tag),
+and keep port `9119` itself private — phones reach the `https://` Serve URL,
+never the raw `http://100.x:9119` listener directly.
+
+Gateway authentication is still required: Tailscale identity does not replace
+Hermes credentials. The Hermes gateway must still report `auth_required: true`
+(and `native_pkce` for phone sign-in), and the phone must still pair with its
+Hermes username/password or device flow. Tokens remain revocable Hermes
+credentials stored in Android secure storage.
+
+Declare the public name first so the backend trusts it, then restart the
+gateway service afterwards, otherwise requests fail with
+`400 Invalid Host header`:
 
 ```bash
-sudo tailscale serve --bg --https 443 http://<tailscale-ip>:9119
+hermes config set dashboard.public_url https://<machine>.<tailnet>.ts.net
+systemctl --user restart hermes-mobile-gateway.service
+```
+
+Then serve the local proxy below (not the gateway directly) over Tailnet TLS:
+
+```bash
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8080
 ```
 
 The first run prints a one-time approval link for the Tailnet admin. The phone address becomes (no port):
@@ -158,24 +182,47 @@ The first run prints a one-time approval link for the Tailnet admin. The phone a
 https://<machine>.<tailnet>.ts.net
 ```
 
-The Hermes backend only answers for hostnames it trusts, so declare the public name and restart the gateway service afterwards, otherwise requests fail with `400 Invalid Host header`:
+Verify Serve status with `tailscale serve status` — it should show
+`https://<machine>.<tailnet>.ts.net` proxied to `http://127.0.0.1:8080`.
 
-```bash
-hermes config set dashboard.public_url https://<machine>.<tailnet>.ts.net
-systemctl --user restart hermes-mobile-gateway.service
-```
+Troubleshooting: if sign-in succeeds but chat still won't connect on a recent backend, its WebSocket origin guard is rejecting the app's origin even over `wss`. Front the gateway with a same-host loopback reverse proxy and point Tailscale Serve at the proxy. The proxy presents the public hostname in `Host` and forwards only explicitly allowlisted `Origin` values (disallowed origins become empty and are rejected by the backend instead of being spoofed with a blanket rewrite).
 
-Troubleshooting: if sign-in succeeds but chat still won't connect on a recent backend, its WebSocket origin guard is rejecting the app's origin even over `wss`. Front the gateway with a same-host reverse proxy that presents the public hostname in the `Host` and `Origin` headers (both must match `dashboard.public_url`), and point Tailscale Serve at the proxy. Example for nginx listening on loopback:
+Complete runnable nginx example (replace `<machine>`, `<tailnet>`, and `<tailscale-ip>`; proxy listens only on loopback):
 
 ```nginx
-location / {
-    proxy_pass http://<tailscale-ip>:9119;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host <machine>.<tailnet>.ts.net;
-    proxy_set_header Origin https://<machine>.<tailnet>.ts.net;
+# /etc/nginx/sites-available/hermes-gateway
+map $http_origin $hermes_origin {
+    default "";
+    "https://<machine>.<tailnet>.ts.net" $http_origin;
 }
+
+server {
+    listen 127.0.0.1:8080;
+    server_name <machine>.<tailnet>.ts.net;
+
+    location / {
+        proxy_pass http://<tailscale-ip>:9119;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host <machine>.<tailnet>.ts.net;
+        # Explicit safe allowlist: only the public Tailnet origin above is
+        # forwarded. All other origins arrive empty and fail the backend
+        # origin guard instead of being rewritten into a trusted value.
+        proxy_set_header Origin $hermes_origin;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}
+```
+
+Enable and verify before pointing Serve at it:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/hermes-gateway /etc/nginx/sites-enabled/hermes-gateway
+sudo nginx -t && sudo systemctl reload nginx
+curl -H "Host: <machine>.<tailnet>.ts.net" http://127.0.0.1:8080/api/status
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8080
 ```
 
 ## Pair the phone
