@@ -55,6 +55,46 @@ export function buildCanonicalSessionParams(profile: string): Record<string, unk
   }
 }
 
+// User-initiated chats must be visible. The canonical hidden Bot Chat params
+// above are only for birthing a bot's first hidden conversation on profile
+// creation — reusing them for "New chat" hides the conversation from the
+// REST sessions projection (archived=exclude + min_messages handling) so it
+// never appears in Sessions.
+export function buildUserChatSessionParams(profile: string): Record<string, unknown> {
+  return {
+    profile,
+    title: 'New chat',
+    hidden: false,
+    follow_profile_config: true,
+  }
+}
+
+export type CreatedSession = { id: string; storedId?: string; runtimeId?: string }
+
+// session.create returns two identities: session_id (ephemeral runtime WS
+// session) and stored_session_id (persisted REST identity). REST history
+// (/api/sessions/{id}/messages) and the sessions roster expect the stored ID;
+// the live gateway expects the runtime ID via session.resume. Always navigate
+// with the stored ID when present, falling back to the runtime ID only for
+// backends that return a single identity.
+export function resolveNewSessionOpenId(created: { session_id?: string; stored_session_id?: string }): string {
+  const id = created.stored_session_id || created.session_id
+  if (!id) throw new Error('Hermes did not return a session for the new chat.')
+  return id
+}
+
+export function isMissingSessionError(reason: unknown): boolean {
+  const message = reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : ''
+  return /404|not found|no such session|unknown session/i.test(message)
+}
+
+export async function createSession(profile: string, baseUrl = activeHermes): Promise<CreatedSession> {
+  const created = await gateway(baseUrl).call<{ session_id?: string; stored_session_id?: string }>('session.create', buildUserChatSessionParams(profile))
+  const storedId = created.stored_session_id || undefined
+  const runtimeId = created.session_id || undefined
+  return { id: resolveNewSessionOpenId(created), ...(storedId ? { storedId } : {}), ...(runtimeId ? { runtimeId } : {}) }
+}
+
 export const localHermes = 'http://127.0.0.1:9119'
 let activeHermes = localHermes
 export function setActiveHermesEndpoint(endpoint: string) { activeHermes = endpoint.replace(/\/$/, '') }
@@ -141,13 +181,6 @@ export async function createProfile(input: { name: string; description: string; 
   if (created.session_id) {
     await client.call('session.title', { session_id: created.session_id, title: 'Bot Chat' })
   }
-}
-
-export async function createSession(profile: string, baseUrl = activeHermes): Promise<string> {
-  const created = await gateway(baseUrl).call<{ session_id?: string; stored_session_id?: string }>('session.create', buildCanonicalSessionParams(profile))
-  const id = created.session_id || created.stored_session_id
-  if (!id) throw new Error('Hermes did not return a session for the new chat.')
-  return id
 }
 
 export async function loadMessages(sessionId: string, profile: string, baseUrl = activeHermes): Promise<LiveMessage[]> {

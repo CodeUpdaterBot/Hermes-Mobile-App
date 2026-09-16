@@ -15,7 +15,7 @@ import { buildBotRows, resolveCanonicalSessionId } from './live-model'
 import { settleAssistantResponse, type SettledAssistantResponse as SettledAssistantState } from './settled-assistant'
 import { isActiveChatTurn } from './chat-turn'
 import { errorMessage, RequestEpoch, selectRestoredEndpoint } from './connection-state'
-import { connectAndSubmit, createProfile, createSession, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
+import { connectAndSubmit, createProfile, createSession, interruptSession, isMissingSessionError, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
 
 type Tab = 'bots' | 'sessions' | 'tasks'
 type DraftBot = { role: string; name: string; description: string; soul: string; model: string; provider: string; shape: string }
@@ -237,7 +237,16 @@ export default function App() {
         setMessages(latestAssistant >= 0 ? loaded.map((message, index) => index === loaded.length - latestAssistant - 1 ? { ...message, usage: latestUsage } : message) : loaded)
       }
       catch (reason) {
-        if (requestId === sessionLoadRef.current && turnId === chatTurnGenerationRef.current) setError(reason instanceof Error ? reason.message : 'Could not load this Hermes conversation.')
+        if (requestId !== sessionLoadRef.current || turnId !== chatTurnGenerationRef.current) return
+        // A brand-new chat has no persisted history yet. The REST history path
+        // 404s for an empty stored session (and always 404s for a runtime-only
+        // ID) — open it as an empty conversation instead of an error banner.
+        if (isMissingSessionError(reason)) {
+          setMessages([])
+          setError('')
+          return
+        }
+        setError(reason instanceof Error ? reason.message : 'Could not load this Hermes conversation.')
       }
       finally {
         const remaining = Math.max(0, 250 - (performance.now() - startedAt))
@@ -323,10 +332,28 @@ export default function App() {
     setStartingChat(true)
     setError('')
     try {
-      const id = await createSession(profile)
-      const data = await refresh()
-      const created = data?.sessions.find(session => session.id === id && session.profile === profile)
-      await openSession(created || { id, title: 'New chat', preview: '', profile, last_active: Date.now() / 1000, unread: false })
+      const created = await createSession(profile)
+      // Refresh the roster in the background so the new visible chat appears
+      // after its first message. Do not block opening on it: a brand-new empty
+      // chat is filtered from the REST projection (min_messages=1) until the
+      // first turn completes.
+      void refresh().catch(() => undefined)
+      // Open directly as an empty conversation with the persisted stored ID.
+      // Do not route the initial empty runtime session through the persisted
+      // REST history path — it has no messages yet and would 404.
+      const now = Date.now() / 1000
+      const fresh: LiveSession = { id: created.id, title: 'New chat', preview: '', profile, last_active: now, unread: false }
+      flushSync(() => {
+        setSelected(fresh)
+        setProfileSheet(false)
+        setMessages([])
+        setSettledAssistant(null)
+        setError('')
+        setSending(false)
+        setStreaming('')
+        setToolActivities([])
+        setConversationLoading(false)
+      })
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not start a new chat.') }
     finally { setStartingChat(false) }
   }
