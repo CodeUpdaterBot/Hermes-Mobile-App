@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, CheckCircle2, Copy, ExternalLink, GitBranch, Globe2, Heart, LoaderCircle, LockKeyhole, ShieldCheck, Smartphone, Wifi } from 'lucide-react'
 
 import HermesMobileAboutMark from '../assets/HermesMobileAboutMark.png'
-import { errorMessage, supportsBasicAuth } from '../connection-state'
+import { errorMessage, insecureGatewayWarning, isLoopbackHost, supportsBasicAuth } from '../connection-state'
 import { useEdgeSwipeBack } from '../edge-swipe'
 import { nativeSignIn, passwordSignIn, probeHermesGateway } from '../hermes'
 
@@ -91,8 +91,18 @@ function PairingSettings({ back, onPaired, onPairingBusy, initialEndpoint }: { b
     try {
       const status = await probeHermesGateway(value)
       if (probeEpoch !== probeEpochRef.current) return
-      const host = new URL(value).hostname.toLowerCase()
-      const loopback = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]'
+      let loopback = false
+      try {
+        loopback = isLoopbackHost(new URL(value).hostname)
+      } catch {
+        loopback = false
+      }
+      // Advisory only (not a block): probe/sign-in work over http, but live
+      // chat may be blocked as mixed content in a secure WebView. Keep the
+      // current Tailscale http pairing flow working until Tauri Android
+      // ws:// behavior is verified on-device. Same warning is shown for
+      // saved-endpoint restore/retry paths below.
+      const httpsWarning = insecureGatewayWarning(value, window.isSecureContext)
       if (!loopback && status.auth_required !== true) {
         setResult({ tone: 'error', text: 'This remote gateway is reachable but does not require authentication. Secure remote pairing requires an authenticated Hermes gateway.' })
         return
@@ -102,7 +112,7 @@ function PairingSettings({ back, onPaired, onPairingBusy, initialEndpoint }: { b
       const pkce = status.auth_flows?.includes('native_pkce') ? ' Secure device sign-in is available.' : ''
       if (!status.auth_flows?.includes('native_pkce')) throw new Error('This Hermes gateway does not advertise secure native phone sign-in.')
       setVerifiedEndpoint(value)
-      setResult({ tone: 'success', text: `Hermes ${status.version || 'gateway'} is reachable. Authentication is required.${pkce}` })
+      setResult({ tone: 'success', text: `Hermes ${status.version || 'gateway'} is reachable. Authentication is required.${pkce}${httpsWarning ? ` ${httpsWarning}` : ''}` })
     } catch (error) {
       if (probeEpoch === probeEpochRef.current) setResult({ tone: 'error', text: errorMessage(error, 'Could not reach this Hermes gateway.') })
     } finally { if (probeEpoch === probeEpochRef.current) setChecking(false) }
@@ -192,6 +202,10 @@ export function ConnectionSettings({ profiles, sessions, connected, endpoint, th
   if (page === 'about') return <AboutHermesMobile back={() => setPage('root')}/>
   if (page === 'pairing') return <PairingSettings back={() => setPage('root')} onPaired={onPaired} onPairingBusy={onPairingBusy} initialEndpoint={endpoint}/>
   const displayEndpoint = endpoint?.replace(/^https?:\/\//, '')
+  // Same HTTPS advisory as the pairing probe, applied consistently to the
+  // saved-endpoint retry/activation path. Non-blocking until Tauri Android
+  // behavior is verified on-device.
+  const savedWarning = endpoint ? insecureGatewayWarning(endpoint, typeof window !== 'undefined' ? window.isSecureContext : false) : null
   return <main ref={shellRef} className="app panel connection-screen">
     <Header title="Connection" subtitle="Hermes Desktop host" back={close}/>
     <section className={`connection-card ${connected ? 'connected' : 'unpaired'}`}>
@@ -199,6 +213,7 @@ export function ConnectionSettings({ profiles, sessions, connected, endpoint, th
       <h3>{connected ? 'Your Hermes host' : endpoint ? 'Saved host needs attention' : 'Pair this device'}</h3>
       <code>{displayEndpoint || 'No verified Hermes host'}</code>
       {connected ? <div className="stats"><span><b>{profiles}</b>Bots</span><span><b>{sessions}</b>Sessions</span></div> : <p className="connection-guidance">{endpoint ? 'Your host and secure sign-in are saved. Retry verification below; you do not need to re-enter the address.' : 'Connect to a private, authenticated Hermes gateway before this device can view or control your Bots.'}</p>}
+      {savedWarning && <p className="pairing-note" role="note">{savedWarning}</p>}
       <button className={`primary wide connection-sync-button ${syncState}`} disabled={connected && syncState === 'syncing'} aria-busy={connected && syncState === 'syncing'} onClick={connected ? () => void syncNow() : endpoint ? () => void refresh() : () => setPage('pairing')}>{connected ? syncState === 'syncing' ? <><LoaderCircle className="connection-sync-spinner" size={17}/> Syncing…</> : syncState === 'success' ? <><CheckCircle2 size={17}/> Synced</> : 'Sync now' : endpoint ? 'Retry saved connection' : 'Set up security & pairing'}</button>
       {connected && syncState !== 'idle' && <p className={`connection-sync-result ${syncState}`} role="status">{syncState === 'syncing' ? 'Refreshing live Hermes data…' : syncState === 'success' ? 'Synced with Hermes Desktop just now.' : 'Sync could not complete. Check the host connection and try again.'}</p>}
     </section>

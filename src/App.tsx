@@ -14,7 +14,7 @@ import { buildAttachmentPrompt, attachmentSummary } from './attachment-routing'
 import { buildBotRows, resolveCanonicalSessionId } from './live-model'
 import { settleAssistantResponse, type SettledAssistantResponse as SettledAssistantState } from './settled-assistant'
 import { isActiveChatTurn } from './chat-turn'
-import { errorMessage, RequestEpoch, selectRestoredEndpoint } from './connection-state'
+import { errorMessage, insecureGatewayWarning, RequestEpoch, selectRestoredEndpoint } from './connection-state'
 import { connectAndSubmit, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
 
 type Tab = 'bots' | 'sessions' | 'tasks'
@@ -175,6 +175,13 @@ export default function App() {
       if (!active) return
       const endpoint = activateEndpoint(selectRestoredEndpoint(nativeEndpoint, localStorage.getItem('hermes-mobile-active-endpoint'), 'http://127.0.0.1:9119'))
       await refresh(endpoint, true)
+      // Same advisory as the pairing probe, applied to the saved-endpoint
+      // restore path. Non-blocking: http pairing keeps working until Tauri
+      // Android ws:// behavior is verified on-device.
+      if (active) {
+        const warning = insecureGatewayWarning(endpoint, typeof window !== 'undefined' ? window.isSecureContext : false)
+        if (warning) setError(warning)
+      }
       if (active) timer = window.setInterval(() => void refresh(activeEndpointRef.current), 5_000)
     }
     void bootstrap()
@@ -189,6 +196,8 @@ export default function App() {
         if (!saved) return
         const endpoint = activateEndpoint(saved)
         await refresh(endpoint, true)
+        const warning = insecureGatewayWarning(endpoint, typeof window !== 'undefined' ? window.isSecureContext : false)
+        if (warning) setError(warning)
       } catch (reason) {
         const message = errorMessage(reason, 'Could not restore the saved Hermes host.')
         lastConnectionErrorRef.current = message
