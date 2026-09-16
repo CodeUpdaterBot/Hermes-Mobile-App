@@ -57,4 +57,22 @@ describe('message card memo equality', () => {
     expect(areMessageCardPropsEqual(first, { ...first, revealTimestamp: true })).toBe(false)
     expect(areMessageCardPropsEqual(first, { ...first, onEdit: otherEdit })).toBe(false)
   })
+
+  it('re-renders when switching between shape and asset avatars', () => {
+    const shape = propsOf({
+      profile: profile({
+        has_avatar: true,
+        ui_meta: { 'hermes-bots': { shape: 'circle', color: 'hsl(30 68% 58%)', imageKind: 'shape' } },
+      }),
+    })
+    const asset = {
+      ...shape,
+      profile: profile({
+        has_avatar: true,
+        ui_meta: { 'hermes-bots': { shape: 'circle', color: 'hsl(30 68% 58%)', imageKind: 'photo', image: 'data:image/png;base64,AA==' } },
+      }),
+    }
+    expect(areMessageCardPropsEqual(shape, asset)).toBe(false)
+    expect(areMessageCardPropsEqual(shape, { ...shape })).toBe(true)
+  })
 })

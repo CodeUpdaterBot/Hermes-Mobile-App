@@ -56,9 +56,12 @@ type MessageCardProps = {
 // Only fields MessageCard actually renders. Session-driven fields such as
 // canonical_session/last_session change on every background refresh and must
 // NOT bust the memo or history re-renders on each poll.
+// imageKind controls BotAvatar's shape-vs-asset branch (see shouldLoadAvatarAsset
+// and the BotAvatar asset effect deps), so it must be part of the key or a
+// shape->asset switch would keep showing the stale avatar.
 function profileRenderKey(profile?: LiveProfile) {
   const meta = profile?.ui_meta?.['hermes-bots']
-  return [profile?.name ?? '', profile?.display_name ?? '', profile?.has_avatar ?? false, meta?.color ?? '', meta?.image ?? '', meta?.shape ?? ''].join('|')
+  return [profile?.name ?? '', profile?.display_name ?? '', profile?.has_avatar ?? false, meta?.color ?? '', meta?.image ?? '', meta?.shape ?? '', meta?.imageKind ?? ''].join('|')
 }
 
 export function areMessageCardPropsEqual(prev: MessageCardProps, next: MessageCardProps) {
