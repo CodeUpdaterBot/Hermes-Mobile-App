@@ -194,13 +194,15 @@ fn authenticated_post_with_timeout(
 
 #[tauri::command]
 fn hermes_transcribe(
+    app: tauri::AppHandle,
     base_url: String,
     profile: String,
     data_url: String,
     mime_type: String,
 ) -> Result<String, String> {
     let origin = server_origin(&base_url);
-    authenticated_post(
+    authenticated_post_for_app(
+        &app,
         &origin,
         &format!("/api/audio/transcribe?profile={profile}"),
         serde_json::json!({ "data_url": data_url, "mime_type": mime_type }),
