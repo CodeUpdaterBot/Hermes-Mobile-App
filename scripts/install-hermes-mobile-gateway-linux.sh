@@ -126,7 +126,7 @@ resolve_ip() {
 dotenv_value() {
   local key="$1"
   [[ -f "$ENV_FILE" ]] || return 0
-  grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2-
+  grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2- || true
 }
 
 set_dotenv_value() {
