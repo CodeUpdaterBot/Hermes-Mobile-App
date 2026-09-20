@@ -9,6 +9,42 @@ fn server_origin(base_url: &str) -> String {
     base_url.trim_end_matches('/').to_string()
 }
 
+fn session_messages_path(session_id: &str, profile: &str) -> String {
+    format!(
+        "/api/sessions/{}/messages?profile={}&limit=120&order=latest&include_compacted=true",
+        urlencoding::encode(session_id),
+        urlencoding::encode(profile)
+    )
+}
+
+fn transcribe_path(profile: &str) -> String {
+    format!(
+        "/api/audio/transcribe?profile={}",
+        urlencoding::encode(profile)
+    )
+}
+
+#[cfg(test)]
+mod request_path_tests {
+    use super::{session_messages_path, transcribe_path};
+
+    #[test]
+    fn encodes_reserved_session_and_profile_values() {
+        assert_eq!(
+            session_messages_path("team/alpha?draft#1", "voice&primary%"),
+            "/api/sessions/team%2Falpha%3Fdraft%231/messages?profile=voice%26primary%25&limit=120&order=latest&include_compacted=true"
+        );
+    }
+
+    #[test]
+    fn encodes_reserved_transcription_profile_values() {
+        assert_eq!(
+            transcribe_path("voice&primary#2"),
+            "/api/audio/transcribe?profile=voice%26primary%232"
+        );
+    }
+}
+
 fn session_token(client: &reqwest::blocking::Client, origin: &str) -> Result<String, String> {
     let html = client
         .get(format!("{origin}/"))
@@ -162,7 +198,7 @@ fn hermes_session_messages(
     profile: String,
 ) -> Result<String, String> {
     let origin = server_origin(&base_url);
-    authenticated_get(&app, &origin, &format!("/api/sessions/{session_id}/messages?profile={profile}&limit=120&order=latest&include_compacted=true"))
+    authenticated_get(&app, &origin, &session_messages_path(&session_id, &profile))
 }
 
 fn authenticated_post(origin: &str, path: &str, body: serde_json::Value) -> Result<String, String> {
@@ -202,7 +238,7 @@ fn hermes_transcribe(
     let origin = server_origin(&base_url);
     authenticated_post(
         &origin,
-        &format!("/api/audio/transcribe?profile={profile}"),
+        &transcribe_path(&profile),
         serde_json::json!({ "data_url": data_url, "mime_type": mime_type }),
     )
 }
