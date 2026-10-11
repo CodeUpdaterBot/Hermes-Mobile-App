@@ -236,10 +236,17 @@ export async function setProfileGroups(
   baseUrl = activeHermes,
 ): Promise<void> {
   const existing = profile.ui_meta?.['hermes-bots'] || {}
-  await rpcCall('profiles.configure', {
+  const result = await rpcCall<{ ok?: boolean; applied?: { ui_meta?: boolean; ui_meta_conflicts?: Record<string, unknown> } }>('profiles.configure', {
     name: profile.name,
     ui_meta: { 'hermes-bots': { ...existing, groups } },
   }, baseUrl)
+  // The gateway SWALLOWS a failed ui_meta write: it reports ok:false + applied.ui_meta
+  // rather than raising. Ignoring that reports a refused write as success, so treat it
+  // as the failure it is and name it.
+  if (result?.ok === false || result?.applied?.ui_meta === false) {
+    const conflict = result?.applied?.ui_meta_conflicts ? ' (the Bot metadata moved on)' : ''
+    throw new Error(`Hermes did not save @${profile.name}’s group membership${conflict}.`)
+  }
 }
 
 // ── the Bot's own computer (display.*) ────────────────────────────────────────

@@ -579,13 +579,15 @@ export default function App() {
         // address exactly.
         if (room?.room_id) rememberRoomId(name, room.room_id)
       } catch (reason) {
-        roomWarning = reason instanceof Error ? reason.message : 'The gateway could not open this room.'
+        roomWarning = errorMessage(reason)
       }
       await refresh()
       setNewGroupOpen(false)
       if (roomWarning) setError(`Group “${name}” was saved, but the gateway could not open its room: ${roomWarning}`)
     } catch (reason) {
-      setGroupError(reason instanceof Error ? reason.message : 'Could not create this group.')
+      // Never fall back to a generic string: a non-Error rejection previously hid the
+      // real cause behind "Could not create this group."
+      setGroupError(`Could not create this group: ${errorMessage(reason)}`)
     } finally { setGroupBusy(false) }
   }
 
