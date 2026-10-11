@@ -221,9 +221,14 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 .sidebar-caps-actions button:hover{color:var(--text)}
 .sidebar-caps .capability-search{margin-bottom:10px}
 .sidebar-caps .capability-save{margin:0 0 10px}
-/* The right column is the single scroller here — nested capped lists would trap the
-   wheel inside a 366px box and leave the rest of the sidebar unreachable. */
-.sidebar-caps .capability-list{max-height:none;overflow:visible}
+/* Exactly three rows, then scroll: a fixed height rather than max-height, because a
+   short list's auto height (three 61px rows = 183px) sits below any cap and merely
+   clipped its own last row. 190px shows three rows and scrolls beyond. Overscroll
+   chains to the column so the wheel is not trapped here once the list ends. */
+.sidebar-caps .capability-list{height:190px;overflow-y:auto;overscroll-behavior:auto}
+/* One line per description in this narrow column: the shared rule clamps to two, and
+   a wrapped row grows taller than the others so a three-row cap silently showed two. */
+.sidebar-caps .capability-row small{display:block;-webkit-line-clamp:1;white-space:nowrap;text-overflow:ellipsis}
 .sidebar-caps .capability-group-head{padding:12px 0 8px}
 
 /* ---------- Computer pane ---------- */
