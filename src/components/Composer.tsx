@@ -7,6 +7,7 @@ import { attachFile, completeSlash, loadModelOptions, setSessionModel, setSessio
 import { BotAvatar } from './BotAvatar'
 import { applySlashCompletion } from '../slash-routing'
 import { isExpectedVoiceCleanupError, VOICE_AUTOSEND_HOLD_MS } from '../voice-input'
+import { haptic } from '../haptics'
 
 export type ComposerEditRequest = { text: string; nonce: number }
 export type ComposerDropFilesRef = { current: ((files: File[]) => void) | null }
@@ -252,7 +253,7 @@ export const Composer = memo(function Composer({ session, profiles, sending, dra
   }
   const onMicPointerDown = () => {
     if (draft || sending || voiceState !== 'idle') return
-    holdTimerRef.current = window.setTimeout(() => { ignoreMicClickRef.current = true; void startVoice(true) }, VOICE_AUTOSEND_HOLD_MS)
+    holdTimerRef.current = window.setTimeout(() => { ignoreMicClickRef.current = true; haptic('impact'); void startVoice(true) }, VOICE_AUTOSEND_HOLD_MS)
   }
   const onMicPointerUp = () => {
     if (holdTimerRef.current) { window.clearTimeout(holdTimerRef.current); holdTimerRef.current = null }

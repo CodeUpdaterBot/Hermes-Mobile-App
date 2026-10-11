@@ -4,6 +4,7 @@ import { ArrowLeft, CalendarClock, ChevronRight, Pause, Pencil, Play, Plus, Refr
 import { NewTaskSheet } from './NewTaskSheet'
 import { loadCronJob, loadCronJobs, loadCronRuns, triggerCronJob, updateCronPrompt, updateCronJob, type CronJob, type CronRun, type LiveProfile } from '../hermes'
 import { useEdgeSwipeBack } from '../edge-swipe'
+import { haptic } from '../haptics'
 
 type Props = { back: () => void; profiles: LiveProfile[] }
 const jobTitle = (job: CronJob) => (job.name || 'Untitled task').replace(/^\[bot:[^\]]+\]\s*/i, '')
@@ -103,6 +104,7 @@ export function TasksView({ back, profiles }: Props) {
       setJobs(current => current.filter(item => item.job_id !== job.job_id))
       setSelected(current => current?.job_id === job.job_id ? null : current)
       setDeleteCandidate(null)
+      haptic('success')
       await refresh()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Hermes could not delete this task.')

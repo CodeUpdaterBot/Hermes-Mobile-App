@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
 
 import { ChatView } from './components/ChatView'
@@ -15,6 +15,8 @@ import { buildBotRows, resolveCanonicalSessionId } from './live-model'
 import { settleAssistantResponse, type SettledAssistantResponse as SettledAssistantState } from './settled-assistant'
 import { isActiveChatTurn } from './chat-turn'
 import { errorMessage, RequestEpoch, selectRestoredEndpoint } from './connection-state'
+import { navDirectionFor, setNavDirection } from './nav-direction'
+import { haptic } from './haptics'
 import { connectAndSubmit, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
 
 type Tab = 'bots' | 'sessions' | 'tasks'
@@ -93,6 +95,19 @@ export default function App() {
   const navigationRef = useRef({ selected: false, profileSheet: false, settings: false, createOpen: false, tab: 'bots' as Tab })
   navigationRef.current = { selected: Boolean(selected), profileSheet, settings, createOpen, tab }
 
+  // Screen depth drives directional transitions: moving deeper pushes in,
+  // coming back pops in. Layout effect so the attribute is written before the
+  // browser paints the newly mounted screen.
+  const screenDepth = createOpen || settings ? 1
+    : selected ? (profileSheet ? 2 : 1)
+    : tab === 'tasks' ? 1
+    : 0
+  const previousDepthRef = useRef(0)
+  useLayoutEffect(() => {
+    setNavDirection(navDirectionFor(previousDepthRef.current, screenDepth))
+    previousDepthRef.current = screenDepth
+  }, [screenDepth])
+
   useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined
@@ -122,6 +137,12 @@ export default function App() {
     document.documentElement.dataset.theme = theme
     localStorage.setItem('hermes-mobile-theme', theme)
   }, [theme])
+
+  // A failure the user cannot see coming gets a distinct tactile warning.
+  useEffect(() => {
+    if (error) haptic('warning')
+  }, [error])
+
   const activateEndpoint = (endpoint: string) => {
     const normalized = endpoint.replace(/\/$/, '')
     activeEndpointRef.current = normalized
@@ -333,6 +354,7 @@ export default function App() {
       await createProfile(botDraft)
       setCreateOpen(false)
       setCreateStep(0)
+      haptic('success')
       const data = await refresh()
       const createdProfile = data?.profiles.find(profile => profile.name === botDraft.name)
       const canonical = createdProfile?.canonical_session
@@ -351,6 +373,12 @@ export default function App() {
       setError(reason instanceof Error ? reason.message : 'Could not create this Bot.')
     } finally { setCreating(false) }
   }
+
+  // A native tab switch starts the new list at the top instead of keeping the
+  // previous tab's scroll offset.
+  useEffect(() => {
+    rosterScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' })
+  }, [tab])
 
   const rosterPullActive = rosterPullDistance > 8 || rosterPullRefreshing
   const rosterTouchStart = (event: React.TouchEvent<HTMLElement>) => {
@@ -420,7 +448,7 @@ function CreateWizard({ step, setStep, draft, setDraft, creating, error, close, 
     return () => window.removeEventListener('hermes-mobile-back', onMobileBack)
   }, [close, setStep, step])
   const pickRole = (role: string) => { const [name, description] = roles[role]; setDraft(current => ({ ...current, role, name, description })) }
-  return <main className="app wizard"><header><button className="icon-button" onClick={close}><X size={18}/></button><div className="progress">{[0, 1, 2, 3].map(item => <i className={item === step ? 'current' : ''} key={item}/>)}</div></header><section><h1>{titles[step]}</h1>{step === 0 && <><p>Name it and give it a job.</p><div className="chips">{Object.keys(roles).map(role => <button className={draft.role === role ? 'selected' : ''} onClick={() => pickRole(role)} key={role}>{role}</button>)}</div><Field label="NAME"><input value={draft.name} onChange={event => setDraft(current => ({ ...current, name: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}/><small>Lowercase profile handle, for example research-rabbit.</small></Field><Field label="WHAT SHOULD IT DO?"><input value={draft.description} onChange={event => setDraft(current => ({ ...current, description: event.target.value }))}/></Field></>}{step === 1 && <><p>Optional — shape how it thinks and talks.</p><div className="explain">This becomes the Bot’s real SOUL.md and loads into every conversation.</div><Field label="SOUL"><textarea value={draft.soul} onChange={event => setDraft(current => ({ ...current, soul: event.target.value }))}/></Field></>}{step === 2 && <><p>Optional — pin a model, or use the Hermes default.</p><button className={!draft.model ? 'model-option selected' : 'model-option'} onClick={() => setDraft(current => ({ ...current, model: '', provider: '' }))}><b>Use Hermes default</b><small>Inherits this PC’s provider and model.</small></button><button className={draft.model === 'gpt-5.6-sol' ? 'model-option selected' : 'model-option'} onClick={() => setDraft(current => ({ ...current, model: 'gpt-5.6-sol', provider: 'openai-api' }))}>openai-api/gpt-5.6-sol</button></>}{step === 3 && <><p>Choose an avatar that remains identical in Hermes Desktop and Mobile.</p><BotAppearancePicker name={draft.name} shape={draft.shape} onShape={shape => setDraft(current => ({ ...current, shape }))}/></>}{error && <p className="wizard-error">{error}</p>}</section><footer><button className="secondary" onClick={() => step ? setStep(step - 1) : close()}>{step ? 'Back' : 'Cancel'}</button><button className="primary" disabled={creating || (step === 0 && !draft.name)} onClick={() => step < 3 ? setStep(step + 1) : finish()}>{creating ? 'Creating…' : step < 3 ? 'Continue' : 'Create Bot'}</button></footer></main>
+  return <main className="app wizard"><header><button className="icon-button" onClick={close}><X size={18}/></button><div className="progress">{[0, 1, 2, 3].map(item => <i className={item === step ? 'current' : ''} key={item}/>)}</div></header><section key={step}><h1>{titles[step]}</h1>{step === 0 && <><p>Name it and give it a job.</p><div className="chips">{Object.keys(roles).map(role => <button className={draft.role === role ? 'selected' : ''} onClick={() => pickRole(role)} key={role}>{role}</button>)}</div><Field label="NAME"><input value={draft.name} onChange={event => setDraft(current => ({ ...current, name: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}/><small>Lowercase profile handle, for example research-rabbit.</small></Field><Field label="WHAT SHOULD IT DO?"><input value={draft.description} onChange={event => setDraft(current => ({ ...current, description: event.target.value }))}/></Field></>}{step === 1 && <><p>Optional — shape how it thinks and talks.</p><div className="explain">This becomes the Bot’s real SOUL.md and loads into every conversation.</div><Field label="SOUL"><textarea value={draft.soul} onChange={event => setDraft(current => ({ ...current, soul: event.target.value }))}/></Field></>}{step === 2 && <><p>Optional — pin a model, or use the Hermes default.</p><button className={!draft.model ? 'model-option selected' : 'model-option'} onClick={() => setDraft(current => ({ ...current, model: '', provider: '' }))}><b>Use Hermes default</b><small>Inherits this PC’s provider and model.</small></button><button className={draft.model === 'gpt-5.6-sol' ? 'model-option selected' : 'model-option'} onClick={() => setDraft(current => ({ ...current, model: 'gpt-5.6-sol', provider: 'openai-api' }))}>openai-api/gpt-5.6-sol</button></>}{step === 3 && <><p>Choose an avatar that remains identical in Hermes Desktop and Mobile.</p><BotAppearancePicker name={draft.name} shape={draft.shape} onShape={shape => setDraft(current => ({ ...current, shape }))}/></>}{error && <p className="wizard-error">{error}</p>}</section><footer><button className="secondary" onClick={() => step ? setStep(step - 1) : close()}>{step ? 'Back' : 'Cancel'}</button><button className="primary" disabled={creating || (step === 0 && !draft.name)} onClick={() => step < 3 ? setStep(step + 1) : finish()}>{creating ? 'Creating…' : step < 3 ? 'Continue' : 'Create Bot'}</button></footer></main>
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

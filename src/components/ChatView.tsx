@@ -45,6 +45,8 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
   const [following, setFollowing] = useState(true)
   const [unreadBelow, setUnreadBelow] = useState(0)
   const [revealedTimestampId, setRevealedTimestampId] = useState<number | null>(null)
+  const [headerElevated, setHeaderElevated] = useState(false)
+  const headerElevatedRef = useRef(false)
   const [controlError, setControlError] = useState('')
   const [draggingFiles, setDraggingFiles] = useState(false)
   const [pullDistance, setPullDistance] = useState(0)
@@ -94,6 +96,8 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
     setFollowing(true)
     setUnreadBelow(0)
     setRevealedTimestampId(null)
+    headerElevatedRef.current = false
+    setHeaderElevated(false)
   }, [session.id])
 
   useLayoutEffect(() => {
@@ -125,6 +129,13 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
   const onScroll = () => {
     const thread = threadRef.current
     if (!thread) return
+    // Elevate the header once content passes beneath it, the way a native
+    // navigation bar separates itself from scrolling content.
+    const scrolled = thread.scrollTop > 6
+    if (scrolled !== headerElevatedRef.current) {
+      headerElevatedRef.current = scrolled
+      setHeaderElevated(scrolled)
+    }
     const nearEnd = shouldStickToBottom(thread.scrollHeight, thread.scrollTop, thread.clientHeight, SCROLL_FOLLOW_THRESHOLD)
     if (nearEnd === followingRef.current) return
     followingRef.current = nearEnd
@@ -168,7 +179,7 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
 
   return <main ref={shellRef} className="app chat-shell" onDragOver={onDragOver} onDrop={onDrop} onDragLeave={() => setDraggingFiles(false)}>
     {draggingFiles && <div className="file-drop-overlay" aria-live="polite"><div><Paperclip size={24}/><b>Drop files to upload to Hermes</b><span>Documents stay on the host for Hermes to read</span></div></div>}
-    <header className="chat-header">
+    <header className={`chat-header${headerElevated ? ' elevated' : ''}`}>
       <button className="round-control" onClick={back} aria-label="Back"><ArrowDown size={18} className="back-chevron"/></button>
       <div className="chat-title"><button className="chat-identity-button" onClick={openProfile} aria-label={`Open ${botName} settings`}><BotAvatar profile={botProfile} fallbackName={session.profile} variant="header"/><span><b>{botName}</b><small>{botName} · {sending ? 'Working' : modelLabel || 'Hermes default'}</small></span></button></div>
       <button className="round-control" onClick={refresh} aria-label="Refresh conversation"><RotateCw size={16}/></button>

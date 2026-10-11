@@ -2,10 +2,25 @@ import { useEffect, type RefObject } from 'react'
 
 export const EDGE_SWIPE_START_RATIO = .5
 export const EDGE_SWIPE_COMMIT_PX = 88
-export const EDGE_SWIPE_MAX_OFFSET_PX = 140
+/** Distance past which the screen stops following the finger. */
+export const EDGE_SWIPE_MAX_OFFSET_PX = 320
+/** Fraction of the finger's travel the screen copies while dragging. */
+export const EDGE_SWIPE_TRACKING_RATIO = 1
 
 export function shouldCommitEdgeSwipe(deltaX: number, deltaY: number): boolean {
   return deltaX >= EDGE_SWIPE_COMMIT_PX && deltaX > Math.abs(deltaY) * 1.2
+}
+
+/**
+ * Interactive drag distance. A native push-back tracks the finger essentially
+ * 1:1 so the gesture feels attached to the screen rather than lagging behind it,
+ * with a short rubber-band once the ceiling is reached.
+ */
+export function edgeSwipeOffset(deltaX: number, viewportWidth = 400): number {
+  const travel = Math.max(0, deltaX) * EDGE_SWIPE_TRACKING_RATIO
+  const ceiling = Math.min(EDGE_SWIPE_MAX_OFFSET_PX, Math.max(120, viewportWidth))
+  if (travel <= ceiling) return travel
+  return ceiling + Math.min(24, (travel - ceiling) * .18)
 }
 
 export function useEdgeSwipeBack<T extends HTMLElement>(ref: RefObject<T | null>, onBack: () => void, enabled = true) {
@@ -43,7 +58,7 @@ export function useEdgeSwipeBack<T extends HTMLElement>(ref: RefObject<T | null>
         return
       }
       event.preventDefault()
-      const offset = Math.min(EDGE_SWIPE_MAX_OFFSET_PX, Math.max(0, deltaX * .55))
+      const offset = edgeSwipeOffset(deltaX, window.innerWidth)
       element.classList.add('edge-swipe-active')
       element.style.setProperty('--edge-swipe-offset', `${offset}px`)
       committed = shouldCommitEdgeSwipe(deltaX, deltaY)

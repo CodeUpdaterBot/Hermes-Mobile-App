@@ -1,10 +1,11 @@
 import { invoke } from '@tauri-apps/api/core'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowLeft, CheckCircle2, Copy, ExternalLink, GitBranch, Globe2, Heart, LoaderCircle, LockKeyhole, ShieldCheck, Smartphone, Wifi } from 'lucide-react'
 
 import HermesMobileAboutMark from '../assets/HermesMobileAboutMark.png'
 import { errorMessage, supportsBasicAuth } from '../connection-state'
 import { useEdgeSwipeBack } from '../edge-swipe'
+import { navDirectionFor, setNavDirection } from '../nav-direction'
 import { nativeSignIn, passwordSignIn, probeHermesGateway } from '../hermes'
 
 const HermesMobileLogo = HermesMobileAboutMark
@@ -170,6 +171,12 @@ export function ConnectionSettings({ profiles, sessions, connected, endpoint, th
   const [page, setPage] = useState<Page>('root')
   const [showThemes, setShowThemes] = useState(false)
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle')
+  // Settings sub-pages push and pop directionally like the rest of the app.
+  const previousPageRef = useRef<Page>('root')
+  useLayoutEffect(() => {
+    setNavDirection(navDirectionFor(previousPageRef.current === 'root' ? 0 : 1, page === 'root' ? 0 : 1))
+    previousPageRef.current = page
+  }, [page])
   useEffect(() => {
     const onMobileBack = (event: Event) => {
       if (page === 'root') return
