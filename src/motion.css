@@ -182,6 +182,12 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 .wide-rail-list{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;padding:0 18px 16px}
 .wide-rail-list::-webkit-scrollbar{display:none;width:0}
 
+/* Which Bot's conversation is open. Without this the selected row looked identical to
+   every other one, even though the class was already being applied. */
+.wide-rail .bot-row.selected{background:rgba(255,255,255,.07)}
+.wide-rail .bot-row.selected b{color:var(--text)}
+[data-theme='light'] .wide-rail .bot-row.selected{background:rgba(0,0,0,.055)}
+
 /* The vertical divider is a real grid column, so clicking it collapses the column
    it belongs to — the same gesture on either side of the middle pane. */
 .wide-divider{width:7px;height:100%;border:0;padding:0;background:transparent;cursor:pointer;position:relative}
