@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, Paperclip, RotateCw, X } from 'lucide-react'
 import type { DragEvent } from 'react'
 
@@ -10,6 +10,8 @@ import { SCROLL_FOLLOW_THRESHOLD, shouldStickToBottom } from '../scroll-follow'
 import { formatResponseStats } from '../message-stats'
 import { useEdgeSwipeBack } from '../edge-swipe'
 import { modelLabel as formatModelLabel } from '../model-label'
+import { buildTranscript, type ToolStep } from '../activity-group'
+import { ActivityBubble } from './ActivityBubble'
 import { Composer, type ComposerDropFilesRef, type ComposerEditRequest } from './Composer'
 import type { LiveMessage, LiveProfile, LiveSession, LiveUsage } from '../hermes'
 
@@ -65,6 +67,8 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
   const showActiveAssistant = sending || Boolean(settledAssistant)
   const showConversationLoading = conversationLoading
   const showEmptyState = !conversationLoading && !messages.length && !showActiveAssistant && !streaming && !toolActivities.length && !visibleError
+  // Consecutive tool calls render as one updating bubble instead of one card each.
+  const entries = useMemo(() => buildTranscript(messages, toolActivities.map<ToolStep>(activity => ({ id: activity.id, name: activity.name, status: activity.status, duration_s: activity.duration_s, summary: activity.summary }))), [messages, toolActivities])
 
   const scrollToLatest = (behavior: ScrollBehavior = 'smooth') => {
     const thread = threadRef.current
@@ -193,8 +197,9 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
         {(pullDistance > 8 || pullRefreshing) && <div className="chat-pull-cue" style={{ height: `${pullRefreshing ? 34 : pullDistance}px` }}><RotateCw size={14} className={pullRefreshing ? 'pull-refresh-spinner' : ''}/><span>{pullRefreshing ? 'Refreshing…' : pullDistance >= 48 ? 'Release to refresh' : 'Pull to refresh'}</span></div>}
         {showConversationLoading && <section className="chat-empty-state conversation-loading" aria-live="polite" aria-label={`Loading ${botName} conversation`}><BotAvatar profile={botProfile} fallbackName={session.profile} variant="welcome"/><h1>{botName.toUpperCase()}</h1><p>{botName} · {modelLabel || 'Hermes Desktop'}</p><LoadingSpinner/></section>}
         {showEmptyState && <section className="chat-empty-state" aria-label={`Start a conversation with ${botName}`}><BotAvatar profile={botProfile} fallbackName={session.profile} variant="welcome"/><h1>{botName.toUpperCase()}</h1><p>Say something to get started.</p></section>}
-        {messages.map(message => <MessageCard key={message.id} message={message} onEdit={editMessage} profile={botProfile} fallbackName={session.profile} revealTimestamp={message.role === 'assistant' && revealedTimestampId === message.id} onRevealTimestamp={() => setRevealedTimestampId(current => current === message.id ? null : message.id)}/>)}
-        {toolActivities.map(activity => <ToolActivityRow activity={activity} key={activity.id}/>)}
+        {entries.map(entry => entry.kind === 'message'
+          ? <MessageCard key={entry.key} message={entry.message} onEdit={editMessage} profile={botProfile} fallbackName={session.profile} revealTimestamp={entry.message.role === 'assistant' && revealedTimestampId === entry.message.id} onRevealTimestamp={() => setRevealedTimestampId(current => current === entry.message.id ? null : entry.message.id)}/>
+          : <ActivityBubble key={entry.key} steps={entry.steps}/>)}
         {showActiveAssistant && <article className="message-row assistant-row live-response"><div className="assistant-message-layout"><BotAvatar profile={botProfile} fallbackName={session.profile} variant="message"/><div className="assistant-message-content">{sending && !streaming && <div className="live-label"><span className="stream-pulse"/> Thinking</div>}{activeAssistantText && <MarkdownContent>{activeAssistantText}</MarkdownContent>}<div className={`response-stats ${settledStats ? '' : 'response-stats-placeholder'}`} aria-label={settledStats ? 'Response generation statistics' : undefined} aria-hidden={settledStats ? undefined : true}>{settledStats || '\u00a0'}</div></div></div></article>}
       </div>
     </div>
@@ -207,10 +212,4 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
 
 function LoadingSpinner() {
   return <span className="conversation-spinner" role="status" aria-label="Loading"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></span>
-}
-
-function ToolActivityRow({ activity }: { activity: ToolActivity }) {
-  const running = activity.status === 'running'
-  const failed = activity.status === 'failed'
-  return <div className={`live-tool ${failed ? 'failed' : ''}`}><span className={running ? 'tool-spinner' : 'tool-state'}>{running ? '⋯' : failed ? '!' : '✓'}</span><span><b>{activity.name}</b><small>{running ? 'running…' : failed ? 'failed' : activity.summary || 'done'}</small></span>{activity.duration_s != null && <time>{activity.duration_s.toFixed(1)}s</time>}</div>
 }

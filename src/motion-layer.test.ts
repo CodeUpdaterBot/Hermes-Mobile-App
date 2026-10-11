@@ -61,8 +61,34 @@ describe('motion layer contract', () => {
     expect(reduced).toContain('scale:1')
   })
 
-  it('never reserves desktop scrollbar chrome in the mobile shell', () => {
-    expect(motionCss).not.toContain('overflow:hidden')
+  it('never hides a scroll surface by turning it into overflow:hidden', () => {
+    // `overflow:hidden` is legitimate for clipping and unavoidable for
+    // single-line `text-overflow:ellipsis`, so the invariant is narrower than
+    // the property itself: a surface the user must be able to scroll must never
+    // be switched to `overflow:hidden`, which silently removes that scrolling.
+    const scrollSurfaces = [
+      '.roster-list-scroll', '.thread-scroll', '.profile-sheet', '.management-sheet',
+      '.tasks-sheet', '.task-detail', '.task-create-scroll', '.capability-list',
+      '.profile-model-picker', '.task-delivery-list', '.model-list',
+      '.slash-popover', '.mention-popover',
+    ]
+    // Canary: if these selectors are ever renamed, fail loudly rather than
+    // letting this check quietly pass over nothing.
+    expect(scrollSurfaces.some(surface => motionCss.includes(surface))).toBe(true)
+    for (const block of motionCss.split('}')) {
+      const brace = block.indexOf('{')
+      if (brace === -1) continue
+      const body = block.slice(brace)
+      if (!body.includes('overflow:hidden')) continue
+      // Compare whole selector parts. A descendant rule such as
+      // `.activity-steps b` may legitimately truncate text, while
+      // `.thread-scroll{…overflow:hidden}` is the scroll surface itself losing
+      // its scrolling and must fail.
+      const parts = block.slice(0, brace).split(',').map(part => part.trim())
+      for (const surface of scrollSurfaces) {
+        if (parts.includes(surface)) expect(body, surface).not.toContain('overflow:hidden')
+      }
+    }
   })
 
   it('gives every full-screen surface a real height so it owns its scrolling', () => {

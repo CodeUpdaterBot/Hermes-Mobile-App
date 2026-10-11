@@ -74,6 +74,58 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
   overflow-y:auto;
 }
 
+/* ---------- Activity bubble ---------- */
+
+/* A whole run of tool calls occupies one row, so it follows the call in flight
+   without stacking a card per call. Built from semantic tokens so every theme
+   inherits it rather than needing its own copy. */
+.activity-bubble{
+  margin:0 0 6px 4px;
+  border:1px solid var(--border);
+  border-radius:11px;
+  background:var(--panel);
+  color:var(--text);
+  animation:row-in var(--motion-quick) var(--ease-out) backwards;
+}
+.activity-head{
+  width:100%;
+  min-height:44px;
+  padding:9px 12px;
+  display:grid;
+  grid-template-columns:24px minmax(0,1fr) auto;
+  align-items:center;
+  gap:9px;
+  border:0;
+  background:transparent;
+  color:inherit;
+  text-align:left;
+  cursor:pointer;
+  touch-action:manipulation;
+}
+.activity-head:disabled{cursor:default}
+.activity-glyph{width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:7px;background:var(--surface);color:var(--secondary)}
+.activity-glyph i{font-style:normal;font-size:12px;line-height:1;color:var(--accent)}
+.activity-labels{display:flex;min-width:0;flex-direction:column}
+.activity-labels b{font:500 12px/1.35 "JetBrains Mono",ui-monospace,monospace;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-labels small{margin-top:2px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-head svg.turn{transform:rotate(180deg)}
+.activity-head svg{transition:transform var(--motion-quick) var(--ease-spring);color:var(--quiet)}
+.activity-bubble.running .activity-glyph i{animation:tool-pulse 1.1s infinite}
+.activity-bubble.failed{border-color:rgba(248,113,113,.32)}
+.activity-bubble.failed .activity-glyph{color:#f48d8d}
+.activity-steps{margin:0;padding:2px 12px 6px 12px;list-style:none;border-top:1px solid var(--border);animation:row-in var(--motion-quick) var(--ease-out) backwards}
+.activity-steps li{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
+.activity-steps li:last-child{border-bottom:0}
+.activity-step-glyph{color:var(--quiet);font-size:11px;text-align:center}
+.activity-steps li.failed .activity-step-glyph{color:#f48d8d}
+.activity-steps b{font:500 12px/1.35 "JetBrains Mono",ui-monospace,monospace;color:var(--secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-steps small{grid-column:2;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-steps time{color:var(--quiet);font:11px "JetBrains Mono",ui-monospace,monospace}
+/* The pale failure red is only legible on the dark canvas. */
+[data-theme='light'] .activity-bubble.failed{border-color:rgba(180,35,24,.35)}
+[data-theme='light'] .activity-bubble.failed .activity-glyph,
+[data-theme='light'] .activity-steps li.failed .activity-step-glyph{color:#b42318}
+
 /* ---------- Press physics ---------- */
 
 /* The independent `scale` property is used deliberately: it composes with any
