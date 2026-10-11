@@ -28,3 +28,4 @@ serde = { version = "1.0.229", features = ["derive"] }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-stt = "0.2.2"
+tauri-plugin-hermes-notifications = { path = "../plugins/hermes-notifications" }
