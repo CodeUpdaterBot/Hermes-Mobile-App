@@ -80,9 +80,12 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
         // to the name is what lets a group created by another client still be found.
         let found = resolveRoom(rooms, readRoomIds()[group.name], group.name)
         // A group's membership rides in the Bots' profiles while its room lives on a
-        // gateway, so a group can exist everywhere and have no room here. Opening it
-        // on demand is safe BECAUSE the id is derived from the name: `groups.create`
-        // is idempotent, so this converges on one room instead of forking.
+        // gateway, so a group can exist everywhere and have no room here. Opening it on
+        // demand is safe because the id is derived from the group name and
+        // `groups.create` is idempotent: every client converges on the same room rather
+        // than racing to fork one. (If a group is ever deleted and re-created, the room
+        // id is re-derived too — so the remembered id, not the name, stays authoritative
+        // for the conversation currently open.)
         if (!found && caps.driver) {
           try {
             await createGroup(anchor, {
