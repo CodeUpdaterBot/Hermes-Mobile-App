@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 
 import { HermesGatewayClient, type GatewayEvent } from './gateway'
 import type { RosterProfile } from './live-model'
+import type { DisplayStatus } from './display'
 
 export type LiveProfile = RosterProfile
 export type LiveSession = { id: string; title: string; preview: string; profile: string; model?: string; unread?: boolean; last_active?: number }
@@ -10,6 +11,7 @@ export type LiveMessage = { id: number; role: 'user' | 'assistant' | 'tool' | 's
 export type ModelProvider = { name: string; slug: string; models?: string[]; featured_models?: string[]; authenticated?: boolean }
 export type ModelOptions = { model?: string; provider?: string; providers?: ModelProvider[] }
 export type SlashCompletion = { text: string; display?: string; meta?: string; kind?: 'skill' | 'command' }
+export type DisplayThumbnail = { data_url?: string | null; suppressed?: string | null }
 export type SlashCompletionResult = { items?: SlashCompletion[]; replace_from?: number }
 export type Capability = { name: string; description?: string; label?: string; tool_count?: number; enabled: boolean }
 export type ProfileDetails = {
@@ -166,6 +168,29 @@ export async function loadProfileAvatar(profile: string, baseUrl = activeHermes)
 
 export async function loadProfileDetails(profile: string, baseUrl = activeHermes): Promise<ProfileDetails> {
   return rpcCall<ProfileDetails>('profiles.describe', { name: profile }, baseUrl)
+}
+
+// ── the Bot's own computer (display.*) ────────────────────────────────────────
+// Verified contract: tui_gateway/contracts/display.py. All are profile-scoped.
+
+export async function loadDisplayStatus(profile: string, baseUrl = activeHermes): Promise<DisplayStatus> {
+  return rpcCall<DisplayStatus>('display.status', { profile }, baseUrl)
+}
+
+export async function grabDisplayThumbnail(profile: string, baseUrl = activeHermes): Promise<DisplayThumbnail> {
+  return rpcCall<DisplayThumbnail>('display.thumbnail', { profile }, baseUrl)
+}
+
+export async function startDisplay(profile: string, baseUrl = activeHermes): Promise<DisplayStatus> {
+  return rpcCall<DisplayStatus>('display.start', { profile }, baseUrl)
+}
+
+export async function acquireDisplayLease(profile: string, baseUrl = activeHermes): Promise<unknown> {
+  return rpcCall('display.lease_acquire', { profile }, baseUrl)
+}
+
+export async function releaseDisplayLease(profile: string, baseUrl = activeHermes): Promise<unknown> {
+  return rpcCall('display.lease_release', { profile }, baseUrl)
 }
 
 export async function attachFile(sessionId: string, profile: string, input: { name: string; dataUrl: string; path?: string }, baseUrl = activeHermes): Promise<{ name: string; refText: string }> {

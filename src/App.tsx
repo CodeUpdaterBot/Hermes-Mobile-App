@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Monitor, Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
 
 import { ChatView } from './components/ChatView'
 import { BotAvatar } from './components/BotAvatar'
@@ -7,6 +7,7 @@ import { BotAppearancePicker } from './components/BotAppearancePicker'
 import { BotProfileSheet } from './components/BotProfileSheet'
 import { TasksView } from './components/TasksView'
 import { ConnectionSettings } from './components/ConnectionSettings'
+import { ComputerPane } from './components/ComputerPane'
 import { onBackButtonPress } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { flushSync } from 'react-dom'
@@ -368,6 +369,18 @@ export default function App() {
     void notificationSync.current.sync(active, preferences, new Date().getHours())
   }, [selected, sending, streaming, toolActivities, profiles])
 
+  // Wide screens (tablet landscape, unfolded foldables) get the three-column
+  // workspace. Narrow phones keep the single-surface flow untouched.
+  const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 900px)').matches)
+  const [railCollapsed, setRailCollapsed] = useState(false)
+  const [computerOpen, setComputerOpen] = useState(true)
+  useEffect(() => {
+    const query = window.matchMedia('(min-width: 900px)')
+    const onChange = (event: MediaQueryListEvent) => setWide(event.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+
   const handleSessionModelChange = useCallback((model: string) => {
     setSelected(current => current ? { ...current, model } : current)
   }, [])
@@ -427,7 +440,20 @@ export default function App() {
   if (createOpen) return <CreateWizard step={createStep} setStep={setCreateStep} draft={botDraft} setDraft={setBotDraft} creating={creating} error={error} close={() => { setCreateOpen(false); setCreateStep(0); setError('') }} finish={() => void finishCreate()}/>
   if (settings) return <ConnectionSettings profiles={profiles.length} botProfiles={profiles} sessions={sessions.length} connected={connectionStatus === 'connected'} endpoint={activeEndpoint !== 'http://127.0.0.1:9119' ? activeEndpoint : undefined} theme={theme} setTheme={setTheme} close={() => setSettings(false)} refresh={() => refresh()} onPairingBusy={setPairingBusyState} onPaired={async endpoint => { const normalized = activateEndpoint(endpoint); const data = await refresh(normalized, true); if (!data) throw new Error(lastConnectionErrorRef.current || 'Signed in, but authenticated Hermes REST or live WebSocket verification failed.'); localStorage.setItem('hermes-mobile-active-endpoint', normalized) }}/>
   if (selected && profileSheet) return <BotProfileSheet profile={profiles.find(profile => profile.name === selected.profile)} session={selected} onClose={() => setProfileSheet(false)} onUpdated={() => void refresh()}/>
-  if (selected) return <ChatView session={selected} conversationLoading={conversationLoading} messages={messages} settledAssistant={settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null} profiles={profiles} streaming={streaming} sending={sending} toolActivities={toolActivities} error={error} back={() => setSelected(null)} refresh={() => void openSession(selected)} openProfile={() => setProfileSheet(true)} onSessionModelChange={handleSessionModelChange} submit={submit} submitVoice={submitVoice} stop={stop}/>
+  const chatView = selected ? <ChatView session={selected} conversationLoading={conversationLoading} messages={messages} settledAssistant={settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null} profiles={profiles} streaming={streaming} sending={sending} toolActivities={toolActivities} error={error} back={() => setSelected(null)} refresh={() => void openSession(selected)} openProfile={() => setProfileSheet(true)} onSessionModelChange={handleSessionModelChange} submit={submit} submitVoice={submitVoice} stop={stop}/> : null
+
+  // Three-column workspace: Bots, the conversation, and the Bot's own computer.
+  if (selected && wide) return <div className={`wide-shell${railCollapsed ? ' rail-collapsed' : ''}`}>
+    {railCollapsed && <button className="wide-rail-reveal" onClick={() => setRailCollapsed(false)} aria-label="Show Bots column"><ChevronRight size={13}/></button>}
+    <aside className="wide-rail" aria-label="Bots">
+      <header className="wide-rail-head"><b>Bots</b><button className="round-control" onClick={() => setRailCollapsed(true)} aria-label="Hide Bots column"><ChevronLeft size={15}/></button></header>
+      <section className="bot-list wide-rail-list">{rows.map(({ profile, session }, index) => <button className={`bot-row${session?.id === selected.id ? ' selected' : ''}`} style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={profile.name} disabled={!session} onClick={() => session && void openSession(session)}><BotAvatar profile={profile} fallbackName={profile.name}/><span className="bot-copy"><b>{profile.display_name || titleize(profile.name)}</b><small>{session?.preview || profile.description || 'No messages yet'}</small></span><span className="meta">{ago(session?.last_active)}{session && <i className={session.unread ? 'unread' : ''}/>}</span></button>)}</section>
+    </aside>
+    <div className="wide-main">{chatView}</div>
+    <aside className="wide-context">{computerOpen ? <ComputerPane profile={selected.profile} botName={profiles.find(profile => profile.name === selected.profile)?.display_name || (selected.title && selected.title !== 'Bot Chat' ? selected.title : titleize(selected.profile))} onClose={() => setComputerOpen(false)}/> : <div className="computer-pane"><button className="secondary wide" onClick={() => setComputerOpen(true)}><Monitor size={15}/> Show computer</button></div>}</aside>
+  </div>
+
+  if (chatView) return chatView
   if (tab === 'tasks') return <TasksView back={() => setTab('bots')} profiles={profiles}/>
 
   return <main className="app roster-shell">
