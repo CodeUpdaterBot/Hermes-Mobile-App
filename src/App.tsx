@@ -18,6 +18,8 @@ import { errorMessage, RequestEpoch, selectRestoredEndpoint } from './connection
 import { navDirectionFor, setNavDirection } from './nav-direction'
 import { haptic } from './haptics'
 import { connectAndSubmit, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
+import { readNotificationPreferences, type BotActivity } from './bot-notifications'
+import { createNotificationSync, DEFAULT_BOT_NOTIFICATION_COLOR } from './notification-service'
 
 type Tab = 'bots' | 'sessions' | 'tasks'
 type DraftBot = { role: string; name: string; description: string; soul: string; model: string; provider: string; shape: string }
@@ -343,6 +345,29 @@ export default function App() {
 
   const submitVoice = useCallback((text: string) => submit([], text), [submit])
 
+  // Keep the lock screen in step with a running turn. Only the conversation this
+  // client has resumed can report progress: the gateway's per-turn events are
+  // session-scoped, and its global `sessions.changed` is a bare "refetch the list"
+  // signal that carries no progress at all.
+  const notificationSync = useRef(createNotificationSync())
+  useEffect(() => {
+    const preferences = readNotificationPreferences()
+    const botProfile = selected ? profiles.find(profile => profile.name === selected.profile) : undefined
+    const active: BotActivity[] = selected && (sending || toolActivities.length) ? [{
+      key: `${selected.profile}::${selected.id}`,
+      bot: botProfile?.display_name || titleize(selected.profile),
+      profile: selected.profile,
+      action: toolActivities.length ? toolActivities[toolActivities.length - 1].name : streaming ? 'Writing' : 'Thinking',
+      stepsDone: toolActivities.filter(item => item.status === 'done').length,
+      // No todo total is published yet, so the bar stays honest and indeterminate.
+      stepsTotal: null,
+      running: sending,
+      failed: toolActivities.some(item => item.status === 'failed'),
+      color: DEFAULT_BOT_NOTIFICATION_COLOR,
+    }] : []
+    void notificationSync.current.sync(active, preferences, new Date().getHours())
+  }, [selected, sending, streaming, toolActivities, profiles])
+
   const handleSessionModelChange = useCallback((model: string) => {
     setSelected(current => current ? { ...current, model } : current)
   }, [])
@@ -400,7 +425,7 @@ export default function App() {
   }
 
   if (createOpen) return <CreateWizard step={createStep} setStep={setCreateStep} draft={botDraft} setDraft={setBotDraft} creating={creating} error={error} close={() => { setCreateOpen(false); setCreateStep(0); setError('') }} finish={() => void finishCreate()}/>
-  if (settings) return <ConnectionSettings profiles={profiles.length} sessions={sessions.length} connected={connectionStatus === 'connected'} endpoint={activeEndpoint !== 'http://127.0.0.1:9119' ? activeEndpoint : undefined} theme={theme} setTheme={setTheme} close={() => setSettings(false)} refresh={() => refresh()} onPairingBusy={setPairingBusyState} onPaired={async endpoint => { const normalized = activateEndpoint(endpoint); const data = await refresh(normalized, true); if (!data) throw new Error(lastConnectionErrorRef.current || 'Signed in, but authenticated Hermes REST or live WebSocket verification failed.'); localStorage.setItem('hermes-mobile-active-endpoint', normalized) }}/>
+  if (settings) return <ConnectionSettings profiles={profiles.length} botProfiles={profiles} sessions={sessions.length} connected={connectionStatus === 'connected'} endpoint={activeEndpoint !== 'http://127.0.0.1:9119' ? activeEndpoint : undefined} theme={theme} setTheme={setTheme} close={() => setSettings(false)} refresh={() => refresh()} onPairingBusy={setPairingBusyState} onPaired={async endpoint => { const normalized = activateEndpoint(endpoint); const data = await refresh(normalized, true); if (!data) throw new Error(lastConnectionErrorRef.current || 'Signed in, but authenticated Hermes REST or live WebSocket verification failed.'); localStorage.setItem('hermes-mobile-active-endpoint', normalized) }}/>
   if (selected && profileSheet) return <BotProfileSheet profile={profiles.find(profile => profile.name === selected.profile)} session={selected} onClose={() => setProfileSheet(false)} onUpdated={() => void refresh()}/>
   if (selected) return <ChatView session={selected} conversationLoading={conversationLoading} messages={messages} settledAssistant={settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null} profiles={profiles} streaming={streaming} sending={sending} toolActivities={toolActivities} error={error} back={() => setSelected(null)} refresh={() => void openSession(selected)} openProfile={() => setProfileSheet(true)} onSessionModelChange={handleSessionModelChange} submit={submit} submitVoice={submitVoice} stop={stop}/>
   if (tab === 'tasks') return <TasksView back={() => setTab('bots')} profiles={profiles}/>

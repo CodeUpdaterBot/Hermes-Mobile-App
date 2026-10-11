@@ -7,15 +7,17 @@ import { errorMessage, supportsBasicAuth } from '../connection-state'
 import { useEdgeSwipeBack } from '../edge-swipe'
 import { navDirectionFor, setNavDirection } from '../nav-direction'
 import { haptic, hapticsEnabled, setHapticsEnabled } from '../haptics'
-import { nativeSignIn, passwordSignIn, probeHermesGateway } from '../hermes'
+import { nativeSignIn, passwordSignIn, probeHermesGateway, type LiveProfile } from '../hermes'
+import { NotificationsSettings } from './NotificationsSettings'
 
 const HermesMobileLogo = HermesMobileAboutMark
 
 type Theme = 'dark' | 'light' | 'grey' | 'aurora'
-type Page = 'root' | 'pairing' | 'about'
+type Page = 'root' | 'pairing' | 'about' | 'notifications'
 
 type Props = {
   profiles: number
+  botProfiles: LiveProfile[]
   sessions: number
   connected: boolean
   endpoint?: string
@@ -166,7 +168,7 @@ function PairingSettings({ back, onPaired, onPairingBusy, initialEndpoint }: { b
   </main>
 }
 
-export function ConnectionSettings({ profiles, sessions, connected, endpoint, theme, setTheme, close, refresh, onPairingBusy, onPaired }: Props) {
+export function ConnectionSettings({ profiles, botProfiles, sessions, connected, endpoint, theme, setTheme, close, refresh, onPairingBusy, onPaired }: Props) {
   const shellRef = useRef<HTMLElement>(null)
   useEdgeSwipeBack(shellRef, close, true)
   const [page, setPage] = useState<Page>('root')
@@ -206,6 +208,7 @@ export function ConnectionSettings({ profiles, sessions, connected, endpoint, th
     }
   }
   if (page === 'about') return <AboutHermesMobile back={() => setPage('root')}/>
+  if (page === 'notifications') return <NotificationsSettings back={() => setPage('root')} profiles={botProfiles}/>
   if (page === 'pairing') return <PairingSettings back={() => setPage('root')} onPaired={onPaired} onPairingBusy={onPairingBusy} initialEndpoint={endpoint}/>
   const displayEndpoint = endpoint?.replace(/^https?:\/\//, '')
   return <main ref={shellRef} className="app panel connection-screen">
@@ -218,7 +221,7 @@ export function ConnectionSettings({ profiles, sessions, connected, endpoint, th
       <button className={`primary wide connection-sync-button ${syncState}`} disabled={connected && syncState === 'syncing'} aria-busy={connected && syncState === 'syncing'} onClick={connected ? () => void syncNow() : endpoint ? () => void refresh() : () => setPage('pairing')}>{connected ? syncState === 'syncing' ? <><LoaderCircle className="connection-sync-spinner" size={17}/> Syncing…</> : syncState === 'success' ? <><CheckCircle2 size={17}/> Synced</> : 'Sync now' : endpoint ? 'Retry saved connection' : 'Set up security & pairing'}</button>
       {connected && syncState !== 'idle' && <p className={`connection-sync-result ${syncState}`} role="status">{syncState === 'syncing' ? 'Refreshing live Hermes data…' : syncState === 'success' ? 'Synced with Hermes Desktop just now.' : 'Sync could not complete. Check the host connection and try again.'}</p>}
     </section>
-    <section className="menu-list"><button>Notifications <span>›</span></button><button onClick={() => setShowThemes(value => !value)}>Appearance <span>{themes.find(item => item.id === theme)?.label} ›</span></button>{showThemes && <div className="theme-picker">{themes.map(item => <button className={item.id === theme ? 'selected' : ''} onClick={() => setTheme(item.id)} key={item.id}><span className={`theme-swatch theme-${item.id}`}/><span><b>{item.label}</b><small>{item.description}</small></span><i>{item.id === theme ? '✓' : ''}</i></button>)}</div>}<button onClick={() => setPage('pairing')}>Security &amp; Pairing <span className={connected ? '' : 'connection-attention'}>{connected ? 'Connected ›' : 'Disconnected ›'}</span></button><button className="settings-toggle-row" onClick={toggleHaptics} aria-pressed={hapticsOn}>Haptics Vibration <span className={`capability-toggle ${hapticsOn ? 'on' : ''}`}><i/>{hapticsOn ? 'ON' : 'OFF'}</span></button><button onClick={() => setPage('about')}>About Hermes Mobile <span>0.1.1 ›</span></button></section>
+    <section className="menu-list"><button onClick={() => setPage('notifications')}>Notifications <span>›</span></button><button onClick={() => setShowThemes(value => !value)}>Appearance <span>{themes.find(item => item.id === theme)?.label} ›</span></button>{showThemes && <div className="theme-picker">{themes.map(item => <button className={item.id === theme ? 'selected' : ''} onClick={() => setTheme(item.id)} key={item.id}><span className={`theme-swatch theme-${item.id}`}/><span><b>{item.label}</b><small>{item.description}</small></span><i>{item.id === theme ? '✓' : ''}</i></button>)}</div>}<button onClick={() => setPage('pairing')}>Security &amp; Pairing <span className={connected ? '' : 'connection-attention'}>{connected ? 'Connected ›' : 'Disconnected ›'}</span></button><button className="settings-toggle-row" onClick={toggleHaptics} aria-pressed={hapticsOn}>Haptics Vibration <span className={`capability-toggle ${hapticsOn ? 'on' : ''}`}><i/>{hapticsOn ? 'ON' : 'OFF'}</span></button><button onClick={() => setPage('about')}>About Hermes Mobile <span>0.1.1 ›</span></button></section>
     <p className="fine">The host owns models, credentials, tools, memory, skills, and approvals. This client is the control surface.</p>
   </main>
 }
