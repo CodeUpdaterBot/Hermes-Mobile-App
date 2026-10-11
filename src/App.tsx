@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Monitor, Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
+import { ChevronRight, Monitor, Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
 
 import { ChatView } from './components/ChatView'
 import { BotAvatar } from './components/BotAvatar'
@@ -401,6 +401,7 @@ export default function App() {
   // workspace. Narrow phones keep the single-surface flow untouched.
   const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 900px)').matches)
   const [railCollapsed, setRailCollapsed] = useState(false)
+  const [contextCollapsed, setContextCollapsed] = useState(false)
   const [computerOpen, setComputerOpen] = useState(true)
   useEffect(() => {
     const query = window.matchMedia('(min-width: 900px)')
@@ -408,6 +409,18 @@ export default function App() {
     query.addEventListener('change', onChange)
     return () => query.removeEventListener('change', onChange)
   }, [])
+
+  // Widening while on the Bots list must not show a second copy of the roster in
+  // the middle pane. Open the most recently active Bot Chat instead, so the
+  // tri-fold always has a real conversation in its centre.
+  // This reads `rows` (not buildBotRows) so the Bot it opens is exactly the top row
+  // of the rail — and so the session carries its resolved lineage id.
+  const mostRecentSession = rows[0]?.session ?? null
+  useEffect(() => {
+    if (!wide || selected || settings || createOpen || profileSheet) return
+    if (!mostRecentSession) return
+    void openSession(mostRecentSession)
+  }, [wide, selected, settings, createOpen, profileSheet, mostRecentSession, openSession])
 
   // The host asks the user questions mid-turn (`clarify`). Answering over the same
   // socket is what releases its turn: an ignored request stalls until the host's
@@ -490,26 +503,15 @@ export default function App() {
     if (shouldRefresh) void pullRefreshRoster()
   }
 
-  if (createOpen) return <CreateWizard step={createStep} setStep={setCreateStep} draft={botDraft} setDraft={setBotDraft} creating={creating} error={error} close={() => { setCreateOpen(false); setCreateStep(0); setError('') }} finish={() => void finishCreate()}/>
-  if (settings) return <ConnectionSettings profiles={profiles.length} botProfiles={profiles} sessions={sessions.length} connected={connectionStatus === 'connected'} endpoint={activeEndpoint !== 'http://127.0.0.1:9119' ? activeEndpoint : undefined} theme={theme} setTheme={setTheme} close={() => setSettings(false)} refresh={() => refresh()} onPairingBusy={setPairingBusyState} onPaired={async endpoint => { const normalized = activateEndpoint(endpoint); const data = await refresh(normalized, true); if (!data) throw new Error(lastConnectionErrorRef.current || 'Signed in, but authenticated Hermes REST or live WebSocket verification failed.'); localStorage.setItem('hermes-mobile-active-endpoint', normalized) }}/>
-  if (selected && profileSheet) return <BotProfileSheet profile={profiles.find(profile => profile.name === selected.profile)} session={selected} onClose={() => setProfileSheet(false)} onUpdated={() => void refresh()}/>
+  // Every screen is built as a value so the wide shell can host ANY of them in its
+  // middle pane, instead of the tri-fold collapsing back to a single column.
+  const wizardView = <CreateWizard step={createStep} setStep={setCreateStep} draft={botDraft} setDraft={setBotDraft} creating={creating} error={error} close={() => { setCreateOpen(false); setCreateStep(0); setError('') }} finish={() => void finishCreate()}/>
+  const settingsView = <ConnectionSettings profiles={profiles.length} botProfiles={profiles} sessions={sessions.length} connected={connectionStatus === 'connected'} endpoint={activeEndpoint !== 'http://127.0.0.1:9119' ? activeEndpoint : undefined} theme={theme} setTheme={setTheme} close={() => setSettings(false)} refresh={() => refresh()} onPairingBusy={setPairingBusyState} onPaired={async endpoint => { const normalized = activateEndpoint(endpoint); const data = await refresh(normalized, true); if (!data) throw new Error(lastConnectionErrorRef.current || 'Signed in, but authenticated Hermes REST or live WebSocket verification failed.'); localStorage.setItem('hermes-mobile-active-endpoint', normalized) }}/>
+  const profileView = selected && profileSheet ? <BotProfileSheet profile={profiles.find(profile => profile.name === selected.profile)} session={selected} onClose={() => setProfileSheet(false)} onUpdated={() => void refresh()}/> : null
   const chatView = selected ? <ChatView session={selected} conversationLoading={conversationLoading} messages={messages} settledAssistant={settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null} profiles={profiles} streaming={streaming} sending={sending} toolActivities={toolActivities} error={error} back={() => setSelected(null)} refresh={() => void openSession(selected)} openProfile={() => setProfileSheet(true)} onSessionModelChange={handleSessionModelChange} submit={submit} submitVoice={submitVoice} stop={stop} clarify={clarifyParams} onClarifyAnswer={answerClarify}/> : null
+  const tasksView = <TasksView back={() => setTab('bots')} profiles={profiles}/>
 
-  // Three-column workspace: Bots, the conversation, and the Bot's own computer.
-  if (selected && wide) return <div className={`wide-shell${railCollapsed ? ' rail-collapsed' : ''}`}>
-    {railCollapsed && <button className="wide-rail-reveal" onClick={() => setRailCollapsed(false)} aria-label="Show Bots column"><ChevronRight size={13}/></button>}
-    <aside className="wide-rail" aria-label="Bots">
-      <header className="wide-rail-head"><b>Bots</b><button className="round-control" onClick={() => setRailCollapsed(true)} aria-label="Hide Bots column"><ChevronLeft size={15}/></button></header>
-      <section className="bot-list wide-rail-list">{rows.map(({ profile, session }, index) => <button className={`bot-row${session?.id === selected.id ? ' selected' : ''}`} style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={profile.name} disabled={!session} onClick={() => session && void openSession(session)}><BotAvatar profile={profile} fallbackName={profile.name}/><span className="bot-copy"><b>{profile.display_name || titleize(profile.name)}</b><small>{session?.preview || profile.description || 'No messages yet'}</small></span><span className="meta">{ago(session?.last_active)}{session && <i className={session.unread ? 'unread' : ''}/>}</span></button>)}</section>
-    </aside>
-    <div className="wide-main">{chatView}</div>
-    <aside className="wide-context">{computerOpen ? <ComputerPane profile={selected.profile} botName={profiles.find(profile => profile.name === selected.profile)?.display_name || (selected.title && selected.title !== 'Bot Chat' ? selected.title : titleize(selected.profile))} onClose={() => setComputerOpen(false)}/> : <div className="computer-pane"><button className="secondary wide" onClick={() => setComputerOpen(true)}><Monitor size={15}/> Show computer</button></div>}<BotRoutines profile={selected.profile} onNewRoutine={() => { setSelected(null); setTab('tasks') }}/></aside>
-  </div>
-
-  if (chatView) return chatView
-  if (tab === 'tasks') return <TasksView back={() => setTab('bots')} profiles={profiles}/>
-
-  return <main className="app roster-shell">
+  const homeView = <main className="app roster-shell">
     <div className="roster-pinned">
       <header className="roster-head"><div><h1>{tab === 'bots' ? 'Bots' : 'Sessions'}</h1><span className={`connection ${connectionStatus === 'disconnected' ? 'offline' : connectionStatus === 'connected' ? 'online' : 'checking'}`} title={connectionStatus === 'disconnected' ? 'No Hermes detected. Start Hermes Desktop, then retry.' : connectionStatus === 'connected' ? 'Connected to Hermes Desktop' : 'Checking for Hermes Desktop…'} aria-label={connectionStatus === 'disconnected' ? 'Hermes Desktop unavailable' : connectionStatus === 'connected' ? 'Connected to Hermes Desktop' : 'Checking for Hermes Desktop'}><i className="connection-dot"/><span>{connectionStatus === 'disconnected' ? 'Hermes unavailable' : connectionStatus === 'connected' ? 'Hermes Desktop' : 'Checking…'}</span></span></div><div className="header-actions"><button className="icon-button" aria-label="Search" onClick={() => setSearching(value => !value)}><Search size={18}/></button><button className="icon-button" aria-label="Settings" onClick={() => setSettings(true)}><SettingsIcon size={18}/></button></div></header>
       {searching && <div className="search"><Search size={16}/><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder={tab === 'bots' ? 'Search bots and group chats…' : 'Search sessions…'}/><button onClick={() => { setQuery(''); setSearching(false) }}><X size={16}/></button></div>}
@@ -522,6 +524,43 @@ export default function App() {
     </div>
     <footer className="roster-actions">{tab === 'bots' ? <><button className="secondary" disabled title="Group-room transport is not yet enabled"><Users size={16}/> New group</button><button className="primary" onClick={() => setCreateOpen(true)}><Plus size={16}/> New Bot</button></> : <button className="primary wide" onClick={() => setTab('bots')}>Back to Bots</button>}</footer>
   </main>
+
+  const screen = createOpen ? wizardView : settings ? settingsView : profileView ?? chatView ?? (tab === 'tasks' ? tasksView : homeView)
+
+  if (!wide) return screen
+
+  const activeProfile = selected ? profiles.find(profile => profile.name === selected.profile) : undefined
+  const activeBotName = activeProfile?.display_name || (selected?.title && selected.title !== 'Bot Chat' ? selected.title : selected ? titleize(selected.profile) : '')
+
+  // The tri-fold workspace. Every screen renders in the middle pane, so opening a
+  // Bot's settings no longer collapses the layout back to a single column.
+  return <div className={`wide-shell${railCollapsed ? ' rail-collapsed' : ''}${contextCollapsed ? ' context-collapsed' : ''}`}>
+    {railCollapsed && <button className="wide-rail-reveal" onClick={() => setRailCollapsed(false)} aria-label="Show Bots column"><ChevronRight size={13}/></button>}
+
+    <aside className="wide-rail" aria-label="Bots">
+      <header className="wide-rail-head">
+        <b>Bots</b>
+        <button className="round-control" onClick={() => setSearching(value => !value)} aria-label="Search Bots"><Search size={16}/></button>
+      </header>
+      {searching && <div className="wide-rail-search"><Search size={15}/><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="Search bots…"/><button onClick={() => { setQuery(''); setSearching(false) }} aria-label="Clear search"><X size={15}/></button></div>}
+      <section className="bot-list wide-rail-list">{rows.map(({ profile, session }, index) => <button className={`bot-row${session && session.id === selected?.id ? ' selected' : ''}`} style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={profile.name} disabled={!session} onClick={() => session && void openSession(session)}><BotAvatar profile={profile} fallbackName={profile.name}/><span className="bot-copy"><b>{profile.display_name || titleize(profile.name)}</b><small>{session?.preview || profile.description || 'No messages yet'}</small></span><span className="meta">{ago(session?.last_active)}{session && <i className={session.unread ? 'unread' : ''}/>}</span></button>)}</section>
+    </aside>
+
+    <button className="wide-divider" onClick={() => setRailCollapsed(value => !value)} aria-label="Toggle Bots column" title="Toggle Bots column"/>
+
+    <div className="wide-main">{screen}</div>
+
+    <button className="wide-divider" onClick={() => setContextCollapsed(value => !value)} aria-label="Toggle computer column" title="Toggle computer column"/>
+
+    <aside className="wide-context" aria-label="Bot computer and routines">
+      {selected ? <>
+        {computerOpen
+          ? <ComputerPane profile={selected.profile} botName={activeBotName} onClose={() => setComputerOpen(false)}/>
+          : <div className="computer-pane"><button className="secondary wide" onClick={() => setComputerOpen(true)}><Monitor size={15}/> Show computer</button></div>}
+        <BotRoutines profile={selected.profile} onNewRoutine={() => { setSelected(null); setTab('tasks') }}/>
+      </> : <p className="wide-context-empty">Open a Bot to see its computer and routines.</p>}
+    </aside>
+  </div>
 }
 
 function Notice({ message, retry }: { message: string; retry: () => void }) {
