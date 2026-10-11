@@ -78,6 +78,11 @@ export function shouldEmitHaptic(now: number, lastEmittedAt: number, gap = HAPTI
 export const HAPTIC_PREFERENCE_KEY = 'hermes-mobile-haptics'
 
 type StorageLike = { getItem(key: string): string | null }
+type WritableStorageLike = StorageLike & { setItem(key: string, value: string): void }
+
+function preferenceStorage(): WritableStorageLike | null {
+  return typeof localStorage === 'undefined' ? null : localStorage
+}
 
 /** Opt-out preference; haptics stay on unless the user explicitly disables them. */
 export function hapticsEnabled(storage?: StorageLike | null): boolean {
@@ -86,6 +91,20 @@ export function hapticsEnabled(storage?: StorageLike | null): boolean {
     return storage.getItem(HAPTIC_PREFERENCE_KEY) !== 'off'
   } catch {
     return true
+  }
+}
+
+/**
+ * Persist the haptics preference. Read live rather than cached, so the Settings
+ * toggle applies to the next interaction without reinstalling the listener.
+ */
+export function setHapticsEnabled(enabled: boolean, storage?: WritableStorageLike | null): void {
+  const target = storage ?? preferenceStorage()
+  if (!target) return
+  try {
+    target.setItem(HAPTIC_PREFERENCE_KEY, enabled ? 'on' : 'off')
+  } catch {
+    /* A storage-blocked WebView must not break the Settings control. */
   }
 }
 
@@ -104,7 +123,7 @@ function vibrationService(): ((pattern: number | number[]) => boolean) | null {
 export function haptic(kind: HapticKind = 'tap'): void {
   const vibrate = vibrationService()
   if (!vibrate) return
-  if (!hapticsEnabled(typeof localStorage === 'undefined' ? null : localStorage)) return
+  if (!hapticsEnabled(preferenceStorage())) return
   try {
     vibrate(hapticPattern(kind))
   } catch {
@@ -124,13 +143,15 @@ export type HapticInstallOptions = {
 export function installHapticFeedback(options: HapticInstallOptions = {}): () => void {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => {}
   if (!vibrationService()) return () => {}
-  if (!hapticsEnabled(typeof localStorage === 'undefined' ? null : localStorage)) return () => {}
 
   const now = options.now ?? (() => performance.now())
   const gap = options.gapMs ?? HAPTIC_MIN_GAP_MS
   let lastEmittedAt = Number.NEGATIVE_INFINITY
 
   const onPointerDown = (event: Event) => {
+    // Read the preference per interaction rather than bailing at install time,
+    // so the Settings toggle takes effect on the very next tap.
+    if (!hapticsEnabled(preferenceStorage())) return
     const target = event.target as Element | null
     if (!target || typeof target.closest !== 'function') return
     if (target.closest(TEXT_ENTRY_SELECTOR)) return

@@ -126,6 +126,12 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 [data-theme='light'] .activity-bubble.failed .activity-glyph,
 [data-theme='light'] .activity-steps li.failed .activity-step-glyph{color:#b42318}
 
+/* A settings row whose trailing control is a switch rather than a chevron. */
+.menu-list .settings-toggle-row{align-items:center}
+.menu-list .settings-toggle-row>span:first-child{display:flex;flex-direction:column;gap:2px;color:var(--text);font-size:14px;text-align:left}
+.menu-list .settings-toggle-row>span:first-child small{color:var(--muted);font-size:11px;font-weight:400}
+.menu-list .settings-toggle-row .capability-toggle{flex:0 0 auto}
+
 /* ---------- Press physics ---------- */
 
 /* The independent `scale` property is used deliberately: it composes with any

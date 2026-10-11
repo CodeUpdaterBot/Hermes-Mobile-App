@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest'
 import {
   HAPTIC_MIN_GAP_MS,
   HAPTIC_PATTERNS,
+  HAPTIC_PREFERENCE_KEY,
   hapticKindFor,
   hapticPattern,
   hapticsEnabled,
+  setHapticsEnabled,
   shouldEmitHaptic,
 } from './haptics'
 
@@ -81,5 +83,35 @@ describe('hapticsEnabled', () => {
 
   it('survives a storage that throws', () => {
     expect(hapticsEnabled({ getItem: () => { throw new Error('blocked') } })).toBe(true)
+  })
+})
+
+describe('setHapticsEnabled', () => {
+  const fakeStorage = () => {
+    const values = new Map<string, string>()
+    return {
+      values,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value) },
+    }
+  }
+
+  it('writes the opt-out the reader looks for', () => {
+    const storage = fakeStorage()
+    setHapticsEnabled(false, storage)
+    expect(storage.values.get(HAPTIC_PREFERENCE_KEY)).toBe('off')
+    expect(hapticsEnabled(storage)).toBe(false)
+  })
+
+  it('round-trips back to enabled', () => {
+    const storage = fakeStorage()
+    setHapticsEnabled(false, storage)
+    setHapticsEnabled(true, storage)
+    expect(hapticsEnabled(storage)).toBe(true)
+  })
+
+  it('never throws when storage is missing or blocked', () => {
+    expect(() => setHapticsEnabled(false, null)).not.toThrow()
+    expect(() => setHapticsEnabled(false, { getItem: () => null, setItem: () => { throw new Error('blocked') } })).not.toThrow()
   })
 })
