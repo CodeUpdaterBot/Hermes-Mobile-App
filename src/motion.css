@@ -172,7 +172,7 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
    vertical separator, matching the single rule under the chat header. */
 .wide-main>.app,.wide-context>*{border-left:0;border-right:0}
 .wide-rail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 12px 10px 18px}
-.wide-rail-head b{font-size:17px;font-weight:600}
+.wide-rail-head b{font-size:22px;font-weight:600}
 .wide-rail-search{display:flex;align-items:center;gap:8px;margin:2px 12px 8px;padding:0 10px;min-height:38px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--quiet)}
 .wide-rail-search input{flex:1 1 auto;min-width:0;border:0;background:transparent;color:var(--text);font-size:13px;outline:none}
 .wide-rail-search button{border:0;background:transparent;color:var(--quiet);display:flex;cursor:pointer;padding:0}
