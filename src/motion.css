@@ -255,6 +255,12 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 .group-empty b{color:var(--text);font-size:16px}
 .group-empty p{margin:0;max-width:420px;font-size:12.5px;line-height:1.55}
 
+/* The group composer is the same field as a Bot chat's: the shared `.ai-composer`
+   textarea rule allows scrolling, which shows desktop scrollbar chrome on this
+   surface, so it is hidden here the way the rest of the mobile shell hides it. */
+.app.chat-shell .group-composer textarea{scrollbar-width:none;padding:1px 5px 7px;min-height:27px;max-height:132px;resize:none}
+.app.chat-shell .group-composer textarea::-webkit-scrollbar{display:none;width:0;height:0}
+
 .new-group-body{padding:0 18px calc(26px + env(safe-area-inset-bottom))}
 .new-group-intro{margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5}
 .new-group-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}

@@ -59,6 +59,7 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
   const [nonce, setNonce] = useState(0)
   const [driver, setDriver] = useState<boolean | null>(null)
   const threadRef = useRef<HTMLDivElement>(null)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
   // The room service is profile-scoped; any member's profile addresses the room.
   const anchor = group.members[0]
   const memberLine = group.members.map(name => titleize(name)).join(', ')
@@ -99,13 +100,23 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
 
   useEffect(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }) }, [lines.length])
 
+  // Grow with the draft exactly like the normal conversation composer. Without this
+  // the field keeps its single row, the content overflows and the browser draws a
+  // scrollbar inside it.
+  useEffect(() => {
+    const field = composerRef.current
+    if (!field) return
+    field.style.height = 'auto'
+    field.style.height = `${Math.min(field.scrollHeight, 132)}px`
+  }, [draft])
+
   const send = async () => {
     const text = draft.trim()
     if (!text || !room || sending) return
     setSending(true); setSendError('')
     try {
-      // `thread_id` is client-generated and groups the message with its turn.
-      await sendGroupMessage(anchor, room.room_id, text, `t-${Date.now().toString(36)}`)
+      // `thread_id` ties the message to its turn; `event_id` is the idempotency key.
+      await sendGroupMessage(anchor, room.room_id, text, `t-${Date.now().toString(36)}`, `e-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
       setDraft('')
       const log = await loadGroupLog(anchor, room.room_id)
       setLines(toLines(log.events || [], room))
@@ -161,12 +172,13 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
     <div className="chat-dock">
       {sendError && <p className="group-status error">{sendError}</p>}
       {!room && !loading && <p className="group-status">{driver === false ? 'This gateway reports no group-room driver, so turns cannot run here.' : 'Messages can be sent once this group has a room on the gateway.'}</p>}
-      <div className="ai-composer">
+      <div className="ai-composer group-composer">
         <textarea
+          ref={composerRef}
           value={draft}
           onChange={event => setDraft(event.target.value)}
           onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() } }}
-          placeholder={room ? `Message ${group.name}… (@name to direct, @everyone for all)` : 'No room on this gateway yet'}
+          placeholder={room ? 'Message…  /commands' : 'No room on this gateway yet'}
           disabled={!room}
           rows={1}
         />

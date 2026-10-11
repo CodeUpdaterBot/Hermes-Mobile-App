@@ -218,9 +218,10 @@ export async function createGroup(
   return result.room
 }
 
-/** Appends one `message.user`; `payload` takes exactly `{ text, thread_id }`. */
-export async function sendGroupMessage(profile: string, roomId: string, text: string, threadId: string, baseUrl = activeHermes): Promise<void> {
-  await rpcCall('groups.send', { profile, room_id: roomId, payload: { text, thread_id: threadId } }, baseUrl)
+/** Appends one `message.user`; `payload` takes exactly `{ text, thread_id }`, and the
+ *  gateway also needs the client's idempotency key (`event_id must be a string`). */
+export async function sendGroupMessage(profile: string, roomId: string, text: string, threadId: string, eventId: string, baseUrl = activeHermes): Promise<void> {
+  await rpcCall('groups.send', { profile, room_id: roomId, event_id: eventId, payload: { text, thread_id: threadId } }, baseUrl)
 }
 
 /**
