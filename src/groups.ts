@@ -16,6 +16,11 @@ export type BotGroup = { name: string; members: string[] }
  * profiles carry a single legacy `group: string`, and a profile can have both, so
  * both keys are read and the result is de-duplicated.
  */
+/** Group identity is case-insensitive: "Patcher, Signal" and "patcher, signal" are one group. */
+export function groupKey(name: string): string {
+  return name.trim().toLowerCase()
+}
+
 export function groupNamesOf(profile: RosterProfile): string[] {
   const meta = profile.ui_meta?.['hermes-bots']
   if (!meta) return []
@@ -24,8 +29,11 @@ export function groupNamesOf(profile: RosterProfile): string[] {
   const names: string[] = []
   for (const value of raw) {
     const name = typeof value === 'string' ? value.trim() : ''
-    if (!name || seen.has(name)) continue
-    seen.add(name)
+    // Identity is the cased-insensitive form, but the first spelling seen is the one
+    // kept for display: the sheet suggests a lowercased name while the metadata may
+    // hold the user's own casing, and treating those as two groups duplicates it.
+    if (!name || seen.has(groupKey(name))) continue
+    seen.add(groupKey(name))
     names.push(name)
   }
   return names
@@ -40,16 +48,17 @@ export function groupNamesOf(profile: RosterProfile): string[] {
  * recency order for groups would sort them differently on every client.
  */
 export function groupsFromProfiles(profiles: RosterProfile[]): BotGroup[] {
-  const byName = new Map<string, string[]>()
+  const byKey = new Map<string, { name: string; members: string[] }>()
   for (const profile of profiles) {
     for (const name of groupNamesOf(profile)) {
-      const members = byName.get(name)
-      if (!members) { byName.set(name, [profile.name]); continue }
-      if (!members.includes(profile.name)) members.push(profile.name)
+      const key = groupKey(name)
+      let entry = byKey.get(key)
+      if (!entry) { entry = { name, members: [] }; byKey.set(key, entry) }
+      if (!entry.members.includes(profile.name)) entry.members.push(profile.name)
     }
   }
-  return [...byName.entries()]
-    .map(([name, members]) => ({ name, members }))
+  return [...byKey.values()]
+    .map(({ name, members }) => ({ name, members }))
     .sort((a, b) => a.name.localeCompare(b.name) || a.members.length - b.members.length)
 }
 

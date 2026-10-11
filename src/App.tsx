@@ -564,7 +564,11 @@ export default function App() {
     try {
       for (const member of members) {
         const existing = groupNamesOf(member)
-        if (!existing.includes(name)) await setProfileGroups(member, [...existing, name])
+        // Case-insensitive, because the sheet suggests a lowercased name while the
+        // metadata may already hold the group under the user's original casing —
+        // writing again would store the same group twice and split its room.
+        const known = existing.some(held => held.toLowerCase() === name.trim().toLowerCase())
+        if (!known) await setProfileGroups(member, [...existing, name])
       }
       let roomWarning = ''
       try {
@@ -579,7 +583,7 @@ export default function App() {
         // address exactly.
         if (room?.room_id) rememberRoomId(name, room.room_id)
       } catch (reason) {
-        roomWarning = errorMessage(reason)
+        roomWarning = errorMessage(reason, 'The gateway could not open this room.')
       }
       await refresh()
       setNewGroupOpen(false)
@@ -587,7 +591,7 @@ export default function App() {
     } catch (reason) {
       // Never fall back to a generic string: a non-Error rejection previously hid the
       // real cause behind "Could not create this group."
-      setGroupError(`Could not create this group: ${errorMessage(reason)}`)
+      setGroupError(`Could not create this group: ${errorMessage(reason, 'unknown error')}`)
     } finally { setGroupBusy(false) }
   }
 
