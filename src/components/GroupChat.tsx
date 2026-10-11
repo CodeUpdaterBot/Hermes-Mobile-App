@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowDown, RotateCw, Send, Users } from 'lucide-react'
 
 import type { GroupEvent, GroupMember, GroupRoom, LiveProfile } from '../hermes'
-import { createGroup, listGroups, loadGroupCapabilities, loadGroupLog, sendGroupMessage } from '../hermes'
+// Reading only: the view never opens a room. Creation happens once, where the user
+// creates the group, so a client that merely opens a group cannot fork a second
+// empty room alongside the one already carrying the conversation.
+import { listGroups, loadGroupCapabilities, loadGroupLog, sendGroupMessage } from '../hermes'
 import type { BotGroup } from '../groups'
-import { groupMembersFor, newGroupRoomId } from '../groups'
 import { BotAvatar } from './BotAvatar'
 
 type Props = { group: BotGroup; profiles: LiveProfile[]; wide?: boolean; back: () => void }
@@ -73,19 +75,8 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
         // room turn can run here — a different situation from "no room yet".
         const caps = await loadGroupCapabilities(anchor)
         if (active) setDriver(Boolean(caps.driver))
-        let rooms = await listGroups(anchor)
-        let found = rooms.find(item => item.name === group.name)
-        // Membership rides in the Bots' profiles but a room lives on a gateway, so a
-        // group can be visible everywhere and still have no room. Open it here when
-        // the gateway can drive one — idempotent, so a retry cannot fork the room.
-        if (!found && caps.driver) {
-          await createGroup(anchor, {
-            roomId: newGroupRoomId(group.name), name: group.name,
-            members: groupMembersFor(group.members.map(name => ({ name, display_name: profiles.find(item => item.name === name)?.display_name }))),
-          })
-          rooms = await listGroups(anchor)
-          found = rooms.find(item => item.name === group.name)
-        }
+        const rooms = await listGroups(anchor)
+        const found = rooms.find(item => item.name === group.name)
         if (!active) return
         setRoom(found || null)
         if (!found) { setLines([]); return }
