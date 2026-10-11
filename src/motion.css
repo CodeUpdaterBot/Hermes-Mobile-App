@@ -243,6 +243,18 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
    rather than an avatar row so a room is never mistaken for a Bot. */
 .bot-row.group-row{background:rgba(255,255,255,.03)}
 .group-glyph{width:40px;height:40px;min-width:40px;border-radius:14px;display:grid;place-items:center;background:var(--surface);border:1px solid var(--border);color:var(--secondary)}
+.group-glyph.small{width:30px;height:30px;min-width:30px;border-radius:10px}
+
+/* The group header mirrors a Bot chat's title block so the two read identically. */
+.group-title{min-width:0;padding:0;display:flex;align-items:center;gap:10px;text-align:left}
+.group-title>span:last-child{display:flex;min-width:0;flex-direction:column}
+.group-msg-who{display:block;margin-bottom:3px;color:var(--muted);font-size:11px;font-weight:600}
+.group-status{margin:2px 0;color:var(--muted);font-size:11.5px;text-align:center}
+.group-status.error{color:#f87171}
+[data-theme='light'] .group-status.error{color:#b42318}
+.group-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:64px 18px 12px;color:var(--muted)}
+.group-empty b{color:var(--text);font-size:16px}
+.group-empty p{margin:0;max-width:420px;font-size:12.5px;line-height:1.55}
 
 .new-group-body{padding:0 18px calc(26px + env(safe-area-inset-bottom))}
 .new-group-intro{margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5}

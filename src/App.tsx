@@ -11,6 +11,7 @@ import { ComputerPane } from './components/ComputerPane'
 import { BotRoutines } from './components/BotRoutines'
 import { BotCapabilities } from './components/BotCapabilities'
 import { NewGroupSheet } from './components/NewGroupSheet'
+import { GroupChat } from './components/GroupChat'
 import { onBackButtonPress } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { flushSync } from 'react-dom'
@@ -253,6 +254,19 @@ export default function App() {
     return needle ? groups.filter(group => group.name.toLowerCase().includes(needle)) : groups
   }, [groups, query])
 
+  // Groups sit in the SAME recency-ordered list as Bot chats — a group is just
+  // another conversation. A room carries no activity of its own here, so it borrows
+  // its most recently active member's, which is the honest proxy available
+  // client-side and needs no extra round trip.
+  const rosterEntries = useMemo(() => {
+    const activityOf = (members: string[]) => rows.reduce(
+      (latest, row) => members.includes(row.profile.name) ? Math.max(latest, row.session?.last_active || 0) : latest, 0)
+    return [
+      ...visibleGroups.map(group => ({ kind: 'group' as const, key: `group:${group.name}`, group, lastActive: activityOf(group.members) })),
+      ...rows.map(({ profile, session }) => ({ kind: 'bot' as const, key: profile.name, profile, session, lastActive: session?.last_active || 0 })),
+    ].sort((a, b) => b.lastActive - a.lastActive)
+  }, [rows, visibleGroups])
+
   const visibleSessions = useMemo(() => sessions.filter(session => `${session.title} ${session.profile} ${session.preview}`.toLowerCase().includes(query.toLowerCase())), [sessions, query])
 
   const openSession = useCallback((session: LiveSession, latestUsage?: LiveUsage): Promise<void> => {
@@ -415,6 +429,7 @@ export default function App() {
   const [railCollapsed, setRailCollapsed] = useState(false)
   const [contextCollapsed, setContextCollapsed] = useState(false)
   const [newGroupOpen, setNewGroupOpen] = useState(false)
+  const [openGroupName, setOpenGroupName] = useState<string | null>(null)
   const [groupBusy, setGroupBusy] = useState(false)
   const [groupError, setGroupError] = useState('')
   const [computerOpen, setComputerOpen] = useState(true)
@@ -535,7 +550,7 @@ export default function App() {
     <div className="roster-list-scroll" ref={rosterScrollRef} onTouchStart={rosterTouchStart} onTouchMove={rosterTouchMove} onTouchEnd={rosterTouchEnd}>
       {rosterPullActive && <div className="roster-pull-cue" style={{ height: `${rosterPullRefreshing ? 46 : rosterPullDistance}px` }}><RefreshCw size={15} className={rosterPullRefreshing ? 'pull-refresh-spinner' : ''}/><span>{rosterPullRefreshing ? 'Refreshing…' : rosterPullDistance >= 56 ? 'Release to refresh' : 'Pull to refresh'}</span></div>}
       {error && <Notice message={error} retry={() => void refresh()}/>}
-      {loading && !profiles.length ? <Skeleton/> : tab === 'bots' ? <section className="bot-list">{visibleGroups.map((group, index) => <div className="bot-row group-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={`group:${group.name}`}><span className="group-glyph"><Users size={17}/></span><span className="bot-copy"><b>{group.name}</b><small>{group.members.length} bots · {group.members.map(name => titleize(name)).join(', ')}</small></span><span className="meta"/></div>)}{rows.map(({ profile, session }, index) => <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={profile.name} disabled={!session} onClick={() => session && void openSession(session)}><BotAvatar profile={profile} fallbackName={profile.name}/><span className="bot-copy"><b>{profile.display_name || titleize(profile.name)}</b><small>{session?.preview || profile.description || 'No messages yet'} </small></span><span className="meta">{ago(session?.last_active)}{session && <i className={session.unread ? 'unread' : ''}/>}</span></button>)}</section> : <section className="bot-list">{visibleSessions.map((session, index) => <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={`${session.profile}:${session.id}`} onClick={() => void openSession(session)}><BotAvatar profile={profiles.find(profile => profile.name === session.profile)} fallbackName={session.profile} variant="session"/><span className="bot-copy"><b>{session.title || 'Untitled session'}</b><small>{titleize(session.profile)} · {session.preview}</small></span><span className="meta">{ago(session.last_active)}</span></button>)}</section>}
+      {loading && !profiles.length ? <Skeleton/> : tab === 'bots' ? <section className="bot-list">{rosterEntries.map((entry, index) => entry.kind === 'group' ? <button className="bot-row group-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={entry.key} onClick={() => setOpenGroupName(entry.group.name)}><span className="group-glyph"><Users size={17}/></span><span className="bot-copy"><b>{entry.group.name}</b><small>{entry.group.members.length} bots · {entry.group.members.map(name => titleize(name)).join(', ')}</small></span><span className="meta">{entry.lastActive ? ago(entry.lastActive) : ''}</span></button> : <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={entry.key} disabled={!entry.session} onClick={() => entry.session && void openSession(entry.session)}><BotAvatar profile={entry.profile} fallbackName={entry.profile.name}/><span className="bot-copy"><b>{entry.profile.display_name || titleize(entry.profile.name)}</b><small>{entry.session?.preview || entry.profile.description || 'No messages yet'} </small></span><span className="meta">{ago(entry.session?.last_active)}{entry.session && <i className={entry.session.unread ? 'unread' : ''}/>}</span></button>)}</section> : <section className="bot-list">{visibleSessions.map((session, index) => <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={`${session.profile}:${session.id}`} onClick={() => void openSession(session)}><BotAvatar profile={profiles.find(profile => profile.name === session.profile)} fallbackName={session.profile} variant="session"/><span className="bot-copy"><b>{session.title || 'Untitled session'}</b><small>{titleize(session.profile)} · {session.preview}</small></span><span className="meta">{ago(session.last_active)}</span></button>)}</section>}
     </div>
     <footer className="roster-actions">{tab === 'bots' ? <><button className="secondary" onClick={() => { setGroupError(''); setNewGroupOpen(true) }}><Users size={16}/> New group</button><button className="primary" onClick={() => setCreateOpen(true)}><Plus size={16}/> New Bot</button></> : <button className="primary wide" onClick={() => setTab('bots')}>Back to Bots</button>}</footer>
   </main>
@@ -569,7 +584,12 @@ export default function App() {
 
   const newGroupView = <NewGroupSheet profiles={profiles} busy={groupBusy} error={groupError} onClose={() => { setNewGroupOpen(false); setGroupError('') }} onCreate={(name, members) => void createBotGroup(name, members)}/>
 
-  const screen = newGroupOpen ? newGroupView : createOpen ? wizardView : settings ? settingsView : profileView ?? chatView ?? (tab === 'tasks' ? tasksView : homeView)
+  // A group chat is a conversation like any other: it opens in the same slot, and
+  // inside the wide shell it renders in the middle pane rather than replacing it.
+  const openGroup = openGroupName ? groups.find(group => group.name === openGroupName) : undefined
+  const groupView = openGroup ? <GroupChat group={openGroup} profiles={profiles} wide={wide} back={() => setOpenGroupName(null)}/> : null
+
+  const screen = newGroupOpen ? newGroupView : createOpen ? wizardView : settings ? settingsView : profileView ?? groupView ?? chatView ?? (tab === 'tasks' ? tasksView : homeView)
 
   if (!wide) return screen
 
