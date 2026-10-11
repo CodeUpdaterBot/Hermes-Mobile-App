@@ -41,11 +41,25 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 
 /* ---------- Scroll physics ---------- */
 
+.scroll-surface,
 .roster-list-scroll,.management-sheet,.tasks-sheet,.task-detail,.task-create-scroll,.profile-sheet,.profile-model-picker,.profile-soul textarea,.capability-list,.task-delivery-list,.thread-scroll,.slash-popover,.mention-popover,.app.chat-shell .model-list{
-  -webkit-overflow-scrolling:touch;
   overscroll-behavior:contain;
 }
-.roster-list-scroll,.thread-scroll,body,html{overscroll-behavior-y:contain}
+.roster-list-scroll,.thread-scroll{overscroll-behavior-y:contain}
+
+/* Full-screen sheets own their scrolling. With only `min-height` they grow to
+   fit their content instead of scrolling, which pushes scrolling onto the
+   document and makes wheel/touch behaviour depend on the page scroller
+   (scrollbar chrome is hidden there, and a root-level overscroll setting then
+   sits between the pointer and the content). A real height makes the sheet a
+   native-style scroll surface, so the pointer always drives the sheet. */
+.profile-sheet,.management-sheet,.tasks-sheet,.task-detail{
+  height:100dvh;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+.task-create-sheet{height:100dvh;min-height:0}
 
 /* ---------- Press physics ---------- */
 
@@ -112,8 +126,17 @@ html[data-nav='back'] :is(.app,.panel.connection-screen,.about-screen,.pairing-s
   animation-name:nav-pop-in;
 }
 
-/* Sheets present from the bottom edge the way a native modal does. */
-.wizard,.profile-sheet,.management-sheet,.task-create-sheet,.task-detail{
+/* Sheets present from the bottom edge the way a native modal does. These use
+   compound `.app.<sheet>` selectors to match the specificity of the directional
+   rules above: `:is()` adopts its most specific argument, and that list holds a
+   two-class selector (`.panel.connection-screen`), so a single-class selector
+   would silently lose and sheets would inherit the push/pop slide instead. */
+html[data-nav] .app.wizard,
+html[data-nav] .app.profile-sheet,
+html[data-nav] .app.management-sheet,
+html[data-nav] .app.tasks-sheet,
+html[data-nav] .app.task-create-sheet,
+html[data-nav] .app.task-detail{
   animation:sheet-rise var(--motion-sheet) var(--ease-out) backwards;
 }
 

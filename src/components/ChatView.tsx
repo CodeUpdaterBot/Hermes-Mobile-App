@@ -9,6 +9,7 @@ import { applySlashCompletion } from '../slash-routing'
 import { SCROLL_FOLLOW_THRESHOLD, shouldStickToBottom } from '../scroll-follow'
 import { formatResponseStats } from '../message-stats'
 import { useEdgeSwipeBack } from '../edge-swipe'
+import { modelLabel as formatModelLabel } from '../model-label'
 import { Composer, type ComposerDropFilesRef, type ComposerEditRequest } from './Composer'
 import type { LiveMessage, LiveProfile, LiveSession, LiveUsage } from '../hermes'
 
@@ -181,7 +182,7 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
     {draggingFiles && <div className="file-drop-overlay" aria-live="polite"><div><Paperclip size={24}/><b>Drop files to upload to Hermes</b><span>Documents stay on the host for Hermes to read</span></div></div>}
     <header className={`chat-header${headerElevated ? ' elevated' : ''}`}>
       <button className="round-control" onClick={back} aria-label="Back"><ArrowDown size={18} className="back-chevron"/></button>
-      <div className="chat-title"><button className="chat-identity-button" onClick={openProfile} aria-label={`Open ${botName} settings`}><BotAvatar profile={botProfile} fallbackName={session.profile} variant="header"/><span><b>{botName}</b><small>{botName} · {sending ? 'Working' : modelLabel || 'Hermes default'}</small></span></button></div>
+      <div className="chat-title"><button className="chat-identity-button" onClick={openProfile} aria-label={`Open ${botName} settings`}><BotAvatar profile={botProfile} fallbackName={session.profile} variant="header"/><span><b>{botName}</b><small>{sending ? 'Working' : formatModelLabel(modelLabel || session.model)}</small></span></button></div>
       <button className="round-control" onClick={refresh} aria-label="Refresh conversation"><RotateCw size={16}/></button>
     </header>
 
