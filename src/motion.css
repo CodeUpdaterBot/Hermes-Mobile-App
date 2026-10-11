@@ -239,9 +239,8 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 
 /* ---------- Group chats ---------- */
 
-/* A group row sits above the Bot rows and mirrors their rhythm; it is a glyph row
-   rather than an avatar row so a room is never mistaken for a Bot. */
-.bot-row.group-row{background:rgba(255,255,255,.03)}
+/* A group row is a conversation row: no background of its own (the tint read as a
+   selected/highlighted state), only the room glyph where a Bot shows its avatar. */
 .group-glyph{width:40px;height:40px;min-width:40px;border-radius:14px;display:grid;place-items:center;background:var(--surface);border:1px solid var(--border);color:var(--secondary)}
 .group-glyph.small{width:30px;height:30px;min-width:30px;border-radius:10px}
 
