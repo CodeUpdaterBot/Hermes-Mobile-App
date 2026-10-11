@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile-notifications",
+  "description": "OS notifications for Bots that are working, so progress stays visible on the lockscreen.",
+  "windows": ["main"],
+  "platforms": ["android", "iOS"],
+  "permissions": ["hermes-notifications:default"]
+}

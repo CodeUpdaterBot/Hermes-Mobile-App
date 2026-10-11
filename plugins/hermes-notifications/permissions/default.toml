@@ -1,0 +1,11 @@
+[default]
+description = "Default permissions for the Hermes notifications plugin"
+permissions = [
+  "allow-ensurePermission",
+  "allow-permissionState",
+  "allow-notificationPermissionResult",
+  "allow-upsert",
+  "allow-finish",
+  "allow-clear",
+  "allow-clearAll",
+]

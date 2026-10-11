@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-finish"
+description = "Enables the finish command without any pre-configured scope."
+commands.allow = ["finish"]
+
+[[permission]]
+identifier = "deny-finish"
+description = "Denies the finish command without any pre-configured scope."
+commands.deny = ["finish"]

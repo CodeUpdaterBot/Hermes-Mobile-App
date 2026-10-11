@@ -10,7 +10,7 @@ import { SCROLL_FOLLOW_THRESHOLD, shouldStickToBottom } from '../scroll-follow'
 import { formatResponseStats } from '../message-stats'
 import { useEdgeSwipeBack } from '../edge-swipe'
 import { modelLabel as formatModelLabel } from '../model-label'
-import { buildTranscript, type ToolStep } from '../activity-group'
+import { buildTranscript, type ActivityStep } from '../activity-group'
 import { ActivityBubble } from './ActivityBubble'
 import { Composer, type ComposerDropFilesRef, type ComposerEditRequest } from './Composer'
 import type { LiveMessage, LiveProfile, LiveSession, LiveUsage } from '../hermes'
@@ -67,8 +67,8 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
   const showActiveAssistant = sending || Boolean(settledAssistant)
   const showConversationLoading = conversationLoading
   const showEmptyState = !conversationLoading && !messages.length && !showActiveAssistant && !streaming && !toolActivities.length && !visibleError
-  // Consecutive tool calls render as one updating bubble instead of one card each.
-  const entries = useMemo(() => buildTranscript(messages, toolActivities.map<ToolStep>(activity => ({ id: activity.id, name: activity.name, status: activity.status, duration_s: activity.duration_s, summary: activity.summary }))), [messages, toolActivities])
+  // Consecutive tool calls and reasoning render as one updating bubble each.
+  const entries = useMemo(() => buildTranscript(messages, toolActivities.map<ActivityStep>(activity => ({ id: activity.id, kind: 'tool', name: activity.name, status: activity.status, duration_s: activity.duration_s, summary: activity.summary }))), [messages, toolActivities])
 
   const scrollToLatest = (behavior: ScrollBehavior = 'smooth') => {
     const thread = threadRef.current
