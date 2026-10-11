@@ -2,11 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowDown, RotateCw, Send, Users } from 'lucide-react'
 
 import type { GroupEvent, GroupMember, GroupRoom, LiveProfile } from '../hermes'
-// Reading only: the view never opens a room. Creation happens once, where the user
-// creates the group, so a client that merely opens a group cannot fork a second
-// empty room alongside the one already carrying the conversation.
-import { listGroups, loadGroupCapabilities, loadGroupLog, sendGroupMessage } from '../hermes'
+import { createGroup, listGroups, loadGroupCapabilities, loadGroupLog, sendGroupMessage } from '../hermes'
 import type { BotGroup } from '../groups'
+import { groupMembersFor, groupRoomId } from '../groups'
+import { readRoomIds, rememberRoomId, resolveRoom } from '../group-rooms'
 import { BotAvatar } from './BotAvatar'
 
 type Props = { group: BotGroup; profiles: LiveProfile[]; wide?: boolean; back: () => void }
@@ -76,10 +75,39 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
         const caps = await loadGroupCapabilities(anchor)
         if (active) setDriver(Boolean(caps.driver))
         const rooms = await listGroups(anchor)
-        const found = rooms.find(item => item.name === group.name)
+        // Address the room by the id the app minted for it, so a same-name re-create
+        // on the gateway is never mistaken for the room we already know. Falling back
+        // to the name is what lets a group created by another client still be found.
+        let found = resolveRoom(rooms, readRoomIds()[group.name], group.name)
+        // A group's membership rides in the Bots' profiles while its room lives on a
+        // gateway, so a group can exist everywhere and have no room here. Opening it
+        // on demand is safe BECAUSE the id is derived from the name: `groups.create`
+        // is idempotent, so this converges on one room instead of forking.
+        if (!found && caps.driver) {
+          try {
+            await createGroup(anchor, {
+              roomId: groupRoomId(group.name), name: group.name,
+              members: groupMembersFor(group.members.map(name => ({
+                name, display_name: profiles.find(item => item.name === name)?.display_name,
+              }))),
+            })
+            found = resolveRoom(await listGroups(anchor), readRoomIds()[group.name], group.name)
+          } catch (reason) {
+            // Opening a room is a different failure from reading one — name it rather
+            // than reporting it through the read path.
+            if (active) {
+              setRoomError(`Could not open this group’s room: ${reason instanceof Error ? reason.message : 'unknown error'}`)
+              setLoading(false)
+            }
+            return
+          }
+        }
         if (!active) return
         setRoom(found || null)
         if (!found) { setLines([]); return }
+        // Pin the id the gateway actually holds for this room, so a later open addresses
+        // it exactly instead of re-deriving it from a name two rooms could share.
+        rememberRoomId(group.name, found.room_id)
         const log = await loadGroupLog(anchor, found.room_id)
         if (active) setLines(toLines(log.events || [], found))
       } catch (reason) {

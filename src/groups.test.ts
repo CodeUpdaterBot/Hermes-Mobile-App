@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { RosterProfile } from './live-model'
-import { checkGroupSize, groupMembersFor, groupNamesOf, groupsFromProfiles, groupsToWrite, memberIdFor, newGroupRoomId, suggestGroupName } from './groups'
+import { checkGroupSize, groupMembersFor, groupNamesOf, groupRoomId, groupsFromProfiles, groupsToWrite, memberIdFor, suggestGroupName } from './groups'
 
 const bot = (name: string, meta?: Record<string, unknown>): RosterProfile => ({
   name,
@@ -58,12 +58,15 @@ describe('Bot groups', () => {
     expect(groupsToWrite([' Room ', 'Room', '', 'Other'])).toEqual(['Room', 'Other'])
   })
 
-  it('generates an identifier-safe room id, unique per create attempt', () => {
-    const id = newGroupRoomId('Patcher, Signal')
+  it('generates an identifier-safe, STABLE room id so one group maps to one room', () => {
+    const id = groupRoomId('Patcher, Signal')
     expect(id).toMatch(/^[a-z0-9][a-z0-9-]*$/)
     expect(id.startsWith('patcher-signal-')).toBe(true)
-    expect(newGroupRoomId('Patcher, Signal')).not.toBe(id) // fresh room per deliberate re-create
-    expect(newGroupRoomId('!!!')).toMatch(/^group-[a-z0-9]+$/)
+    // Stability is the point: a random suffix per attempt forked an empty room on
+    // every open, and the gateway accepted each one.
+    expect(groupRoomId('Patcher, Signal')).toBe(id)
+    expect(groupRoomId('Other Room')).not.toBe(id)
+    expect(groupRoomId('!!!')).toMatch(/^group-[0-9a-f]{8}$/)
   })
 
   it('suggests a name from the chosen Bots', () => {

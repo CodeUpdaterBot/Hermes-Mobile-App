@@ -17,7 +17,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { flushSync } from 'react-dom'
 import { buildAttachmentPrompt, attachmentSummary } from './attachment-routing'
 import { buildBotRows, resolveCanonicalSessionId } from './live-model'
-import { groupMembersFor, groupNamesOf, groupsFromProfiles, newGroupRoomId } from './groups'
+import { groupMembersFor, groupNamesOf, groupsFromProfiles, groupRoomId } from './groups'
+import { rememberRoomId } from './group-rooms'
 import { settleAssistantResponse, type SettledAssistantResponse as SettledAssistantState } from './settled-assistant'
 import { isActiveChatTurn } from './chat-turn'
 import { errorMessage, RequestEpoch, selectRestoredEndpoint } from './connection-state'
@@ -567,12 +568,16 @@ export default function App() {
       }
       let roomWarning = ''
       try {
-        await createGroup(members[0].name, {
-          roomId: newGroupRoomId(name), name,
+        const room = await createGroup(members[0].name, {
+          roomId: groupRoomId(name), name,
           // groups.create requires member_id + profile + handle on every member and
           // rejects anything else, so the rows come from one shared builder.
           members: groupMembersFor(members),
         })
+        // Pin the id the gateway actually holds: the name-derived id is what makes
+        // creation converge, but only the id that comes back is what a read can
+        // address exactly.
+        if (room?.room_id) rememberRoomId(name, room.room_id)
       } catch (reason) {
         roomWarning = reason instanceof Error ? reason.message : 'The gateway could not open this room.'
       }

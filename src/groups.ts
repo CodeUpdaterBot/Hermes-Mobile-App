@@ -114,11 +114,14 @@ export function checkGroupSize(count: number): GroupSizeCheck {
 }
 
 /**
- * A room id is client-chosen and creation is idempotent, so the caller generates it
- * once per create attempt and reuses it on retry. A fresh suffix per creation keeps
- * a deliberate same-name re-create from colliding with the room it replaces.
+ * The room id for a group, derived deterministically from its name.
+ *
+ * A room id is client-chosen and `groups.create` is idempotent, so a *stable* id is
+ * what keeps one group to one room: a random suffix per attempt forked a fresh empty
+ * room every time a client opened the group. Stability also means any client that
+ * opens the group converges on the same room instead of racing to create its own.
  */
-export function newGroupRoomId(name: string, suffix = Math.random().toString(36).slice(2, 8)): string {
+export function groupRoomId(name: string, suffix = memberIdFor(name).slice(0, 8)): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'group'
   return `${slug}-${suffix}`
 }
