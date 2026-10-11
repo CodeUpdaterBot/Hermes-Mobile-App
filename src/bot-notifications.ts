@@ -8,21 +8,34 @@
  * an in-app toast, not an OS notification. So the phone composes notifications
  * from the turn state it can actually observe, and this module keeps that
  * composition pure and testable.
+ *
+ * ## About the progress bar
+ *
+ * A turn's true completion is unknowable in advance, so the bar is an *estimate*
+ * with two honest properties: it is exact whenever the Bot publishes a todo total,
+ * and it never reaches 100% until the turn has actually ended. While information
+ * is missing it advances through coarse phases rather than pretending to a
+ * precision it does not have.
  */
+
+export type BotStage = 'thinking' | 'tools' | 'writing'
 
 export type BotActivity = {
   /** Stable per Bot+session, so an update replaces the same notification. */
   key: string
   bot: string
   profile: string
-  /** One line describing what the Bot is doing right now. */
-  action: string
+  /** The status line shown under the Bot name: what it is doing right now. */
+  detail: string
+  stage: BotStage
   stepsDone: number
-  /** Only known when the Bot published a todo list; otherwise progress is unknown. */
+  /** Only known when the Bot published a todo list; otherwise progress is estimated. */
   stepsTotal: number | null
   running: boolean
   failed: boolean
   color: string
+  /** Optional PNG data URL for the notification's large icon (the Bot avatar). */
+  avatar?: string | null
 }
 
 export type NotificationPreferences = {
@@ -112,24 +125,41 @@ export function inQuietHours(hour: number, quiet: NotificationPreferences['quiet
     : hour >= quiet.startHour || hour < quiet.endHour
 }
 
+/** Phase floors used only when the Bot has not published a real total. */
+const STAGE_PERCENT: Record<BotStage, number> = { thinking: 12, tools: 22, writing: 88 }
+/** Per completed tool, while the total is unknown. */
+const PER_TOOL_PERCENT = 9
+/** The ceiling an estimate may reach; only a finished turn shows 100. */
+const ESTIMATE_CEILING = 95
+
 /**
- * Progress is only reported when the Bot published a todo total. Inventing a
- * percentage from elapsed time or step count would put a moving bar on the
- * lockscreen that never corresponds to real work.
+ * Progress for the bar under the Bot name.
+ *
+ * Exact when a todo total exists. Otherwise a deliberately coarse phase estimate
+ * that is capped below 100% — a bar that reports "done" while the Bot is still
+ * working would be a lie, and one that never moves would be useless.
  */
 export function resolveProgress(activity: BotActivity): { indeterminate: boolean; percent: number } {
   if (!activity.running) return { indeterminate: false, percent: 100 }
-  if (activity.stepsTotal == null || activity.stepsTotal <= 0) return { indeterminate: true, percent: 0 }
-  const percent = Math.round((Math.min(activity.stepsDone, activity.stepsTotal) / activity.stepsTotal) * 100)
-  return { indeterminate: false, percent: Math.min(100, Math.max(0, percent)) }
+
+  if (activity.stepsTotal != null && activity.stepsTotal > 0) {
+    const ratio = Math.min(activity.stepsDone, activity.stepsTotal) / activity.stepsTotal
+    // Capped even when the Bot reports every todo done: a bar reading 100% while
+    // the turn is still open would claim a completion that has not happened.
+    return { indeterminate: false, percent: Math.min(ESTIMATE_CEILING, Math.round(ratio * 100)) }
+  }
+
+  const base = STAGE_PERCENT[activity.stage] ?? STAGE_PERCENT.thinking
+  const advanced = activity.stage === 'tools' ? base + activity.stepsDone * PER_TOOL_PERCENT : base
+  return { indeterminate: false, percent: Math.max(1, Math.min(ESTIMATE_CEILING, Math.round(advanced))) }
 }
 
 export type PostedNotification = {
   key: string
   running: boolean
-  indeterminate: boolean
   percent: number
-  action: string
+  detail: string
+  avatar?: string | null
 }
 
 export type NotificationPlan = {
@@ -172,8 +202,7 @@ export function planNotificationUpdates(
       const progress = resolveProgress(activity)
       const unchanged = existing
         && existing.running
-        && existing.action === activity.action
-        && existing.indeterminate === progress.indeterminate
+        && existing.detail === activity.detail
         && existing.percent === progress.percent
       if (!unchanged) plan.upsert.push(activity)
       continue

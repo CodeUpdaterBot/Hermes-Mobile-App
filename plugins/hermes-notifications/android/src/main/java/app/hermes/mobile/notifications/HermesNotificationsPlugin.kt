@@ -6,8 +6,12 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Resources
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.os.Build
+import android.util.Base64
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -20,9 +24,11 @@ import app.tauri.plugin.Plugin
 
 /**
  * OS notifications for Bots that are working, so a long run stays visible on the
- * lockscreen while the user is elsewhere in the app or has put the phone down.
+ * lockscreen while the user is elsewhere.
  *
- * One notification per Bot, keyed by the session identity, and updated in place:
+ * Layout: the Bot's own avatar as the large icon on the left, the Bot name as the
+ * title, the current status/thinking line underneath, and a progress bar below
+ * that. One notification per Bot, keyed by session identity and updated in place:
  * a Bot that calls twelve tools must not produce twelve notifications. Ongoing
  * notifications cannot be swiped away mid-run, and completion converts the same
  * notification into an ordinary clearable one instead of posting a second entry.
@@ -34,8 +40,8 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
     private const val RUNNING_CHANNEL = "hermes-bots-running"
     private const val DONE_CHANNEL = "hermes-bots-done"
     private const val GROUP_KEY = "app.hermes.mobile.BOTS"
-    private const val SUMMARY_ID = 1
     private const val REQUEST_CODE = 4711
+    private const val PREFS = "hermes-notifications"
 
     /** Android 13 introduced a runtime notification permission. */
     private const val POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS"
@@ -45,12 +51,15 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
   class UpsertArgs {
     lateinit var id: String
     var bot: String = "Hermes"
-    var action: String = ""
-    /** 0..100 for a determinate bar; null (or negative) means indeterminate. */
-    var percent: Int = -1
+    /** Status / current thinking line shown under the Bot name. */
+    var detail: String = ""
+    /** 0..100 of the estimated completion. */
+    var percent: Int = 0
     var running: Boolean = true
     var ongoing: Boolean = true
     var color: String = "#49C088"
+    /** PNG of the Bot avatar, base64 without the data-url prefix. */
+    var iconBase64: String? = null
   }
 
   @InvokeArg
@@ -62,9 +71,10 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
   class FinishArgs {
     lateinit var id: String
     var bot: String = "Hermes"
-    var action: String = ""
+    var detail: String = ""
     var color: String = "#49C088"
     var failed: Boolean = false
+    var iconBase64: String? = null
   }
 
   private val manager: NotificationManagerCompat
@@ -93,6 +103,23 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
     Color.parseColor("#49C088")
   }
 
+  /**
+   * The avatar is rasterised in the WebView (Android cannot decode SVG) and sent
+   * as PNG. A failure here must not cost the user the notification itself — it
+   * simply falls back to the small icon.
+   */
+  private fun decodeIcon(base64: String?): Bitmap? {
+    if (base64.isNullOrEmpty()) return null
+    return try {
+      val bytes = Base64.decode(base64, Base64.DEFAULT)
+      BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    } catch (_: IllegalArgumentException) {
+      null
+    } catch (_: OutOfMemoryError) {
+      null
+    }
+  }
+
   private fun contentIntent(): PendingIntent? {
     val launch = activity.packageManager.getLaunchIntentForPackage(activity.packageName) ?: return null
     launch.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -116,16 +143,42 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
     }
   }
 
-  private fun buildBase(bot: String, action: String, color: String, channel: String): NotificationCompat.Builder =
-    NotificationCompat.Builder(activity, channel)
+  private fun buildBase(bot: String, detail: String, color: String, channel: String, icon: Bitmap?): NotificationCompat.Builder {
+    val builder = NotificationCompat.Builder(activity, channel)
       .setSmallIcon(R.drawable.ic_hermes_notification)
       .setContentTitle(bot)
-      .setContentText(action)
+      .setContentText(detail)
       .setColor(parseColor(color))
       .setColorized(false)
       .setGroup(GROUP_KEY)
       .setContentIntent(contentIntent())
       .setPriority(NotificationCompat.PRIORITY_LOW)
+    if (icon != null) {
+      // What makes several working Bots distinguishable at a glance.
+      builder.setLargeIcon(scaleForLargeIcon(icon))
+      builder.setStyle(NotificationCompat.BigTextStyle().bigText(detail))
+    }
+    return builder
+  }
+
+  /** Large icons are drawn at ~64dp; a full-size avatar would be needless memory. */
+  private fun scaleForLargeIcon(icon: Bitmap): Bitmap {
+    val target = (64 * Resources.getSystem().displayMetrics.density).toInt().coerceAtLeast(96)
+    if (icon.width <= target && icon.height <= target) return icon
+    val ratio = icon.width.toFloat() / icon.height.toFloat()
+    val width = if (ratio >= 1f) target else (target * ratio).toInt()
+    val height = if (ratio >= 1f) (target / ratio).toInt() else target
+    return Bitmap.createScaledBitmap(icon, width.coerceAtLeast(1), height.coerceAtLeast(1), true)
+  }
+
+  private fun activeCount(): Int = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    .all.keys.count { it.startsWith("active:") }
+
+  private fun setActive(id: String, active: Boolean) {
+    val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+    if (active) prefs.putBoolean("active:$id", true) else prefs.remove("active:$id")
+    prefs.apply()
+  }
 
   private fun postSummary(count: Int) {
     if (count <= 0) return
@@ -140,13 +193,9 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
     post("__summary__", summary)
   }
 
-  private fun activeCount(): Int = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    .all.keys.count { it.startsWith("active:") }
-
-  private fun setActive(id: String, active: Boolean) {
-    val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-    if (active) prefs.putBoolean("active:$id", true) else prefs.remove("active:$id")
-    prefs.apply()
+  private fun dropSummaryIfIdle() {
+    val remaining = activeCount()
+    if (remaining <= 0) manager.cancel(notificationId("__summary__")) else postSummary(remaining)
   }
 
   @Command
@@ -186,10 +235,10 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
   fun upsert(invoke: Invoke) {
     val args = invoke.parseArgs(UpsertArgs::class.java)
     ensureChannels()
-    val builder = buildBase(args.bot, args.action, args.color, RUNNING_CHANNEL)
+    val builder = buildBase(args.bot, args.detail, args.color, RUNNING_CHANNEL, decodeIcon(args.iconBase64))
       .setOnlyAlertOnce(true)
       .setOngoing(args.ongoing && args.running)
-      .setProgress(100, args.percent.coerceIn(0, 100), args.percent < 0)
+      .setProgress(100, args.percent.coerceIn(0, 100), false)
       .setSilent(true)
     post(args.id, builder)
     if (args.running) {
@@ -203,15 +252,16 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
   fun finish(invoke: Invoke) {
     val args = invoke.parseArgs(FinishArgs::class.java)
     ensureChannels()
-    val builder = buildBase(args.bot, args.action, args.color, DONE_CHANNEL)
+    val builder = buildBase(args.bot, args.detail, args.color, DONE_CHANNEL, decodeIcon(args.iconBase64))
       .setOngoing(false)
       .setAutoCancel(true)
+      // Progress is removed rather than pinned at 100 so a finished entry does not
+      // keep a full bar that implies work is still happening.
       .setProgress(0, 0, false)
       .setOnlyAlertOnce(false)
     post(args.id, builder)
     setActive(args.id, false)
-    val remaining = activeCount()
-    if (remaining <= 0) manager.cancel(notificationId("__summary__")) else postSummary(remaining)
+    dropSummaryIfIdle()
     invoke.resolve(JSObject().apply { put("ok", true) })
   }
 
@@ -220,8 +270,7 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
     val args = invoke.parseArgs(IdArgs::class.java)
     manager.cancel(notificationId(args.id))
     setActive(args.id, false)
-    val remaining = activeCount()
-    if (remaining <= 0) manager.cancel(notificationId("__summary__")) else postSummary(remaining)
+    dropSummaryIfIdle()
     invoke.resolve(JSObject().apply { put("ok", true) })
   }
 
@@ -237,5 +286,3 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
     invoke.resolve(JSObject().apply { put("ok", true) })
   }
 }
-
-private const val PREFS = "hermes-notifications"

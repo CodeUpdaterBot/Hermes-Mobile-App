@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 
+import { splitDataUrl } from './avatar-raster'
 import {
   planNotificationUpdates,
   readNotificationPreferences,
@@ -87,24 +88,29 @@ export function createNotificationSync() {
 
       for (const activity of plan.upsert) {
         const progress = resolveProgress(activity)
+        const icon = activity.avatar ? splitDataUrl(activity.avatar) : null
         await call('upsert', {
           id: activity.key,
           bot: activity.bot,
-          action: activity.action,
-          percent: progress.indeterminate ? -1 : progress.percent,
+          // Status line under the Bot name: what it is doing right now.
+          detail: activity.detail,
+          percent: progress.percent,
           running: true,
           ongoing: true,
           color: activity.color,
+          iconBase64: icon?.base64 ?? null,
         })
       }
 
       for (const activity of plan.finish) {
+        const icon = activity.avatar ? splitDataUrl(activity.avatar) : null
         await call('finish', {
           id: activity.key,
           bot: activity.bot,
-          action: activity.failed ? 'Stopped with an error' : 'Finished',
+          detail: activity.failed ? 'Stopped with an error' : 'Finished',
           color: activity.color,
           failed: activity.failed,
+          iconBase64: icon?.base64 ?? null,
         })
       }
 
@@ -114,17 +120,16 @@ export function createNotificationSync() {
       // failed native call cannot leave the local view claiming success.
       const byKey = new Map(posted.map(item => [item.key, item]))
       for (const activity of plan.upsert) {
-        const progress = resolveProgress(activity)
         byKey.set(activity.key, {
           key: activity.key,
           running: true,
-          indeterminate: progress.indeterminate,
-          percent: progress.percent,
-          action: activity.action,
+          percent: resolveProgress(activity).percent,
+          detail: activity.detail,
+          avatar: activity.avatar ?? null,
         })
       }
       for (const activity of plan.finish) {
-        byKey.set(activity.key, { key: activity.key, running: false, indeterminate: false, percent: 100, action: activity.failed ? 'failed' : 'finished' })
+        byKey.set(activity.key, { key: activity.key, running: false, percent: 100, detail: activity.failed ? 'failed' : 'finished', avatar: activity.avatar ?? null })
       }
       for (const key of plan.clear) byKey.delete(key)
       posted = [...byKey.values()]

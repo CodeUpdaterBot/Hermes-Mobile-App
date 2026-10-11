@@ -19,8 +19,10 @@ import { errorMessage, RequestEpoch, selectRestoredEndpoint } from './connection
 import { navDirectionFor, setNavDirection } from './nav-direction'
 import { haptic } from './haptics'
 import { connectAndSubmit, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
-import { readNotificationPreferences, type BotActivity } from './bot-notifications'
+import { readNotificationPreferences, type BotActivity, type BotStage } from './bot-notifications'
 import { createNotificationSync, DEFAULT_BOT_NOTIFICATION_COLOR } from './notification-service'
+import { rasterizeAvatarPng } from './avatar-raster'
+import { reasoningSnippet } from './activity-group'
 
 type Tab = 'bots' | 'sessions' | 'tasks'
 type DraftBot = { role: string; name: string; description: string; soul: string; model: string; provider: string; shape: string }
@@ -354,20 +356,44 @@ export default function App() {
   useEffect(() => {
     const preferences = readNotificationPreferences()
     const botProfile = selected ? profiles.find(profile => profile.name === selected.profile) : undefined
-    const active: BotActivity[] = selected && (sending || toolActivities.length) ? [{
-      key: `${selected.profile}::${selected.id}`,
-      bot: botProfile?.display_name || titleize(selected.profile),
-      profile: selected.profile,
-      action: toolActivities.length ? toolActivities[toolActivities.length - 1].name : streaming ? 'Writing' : 'Thinking',
-      stepsDone: toolActivities.filter(item => item.status === 'done').length,
-      // No todo total is published yet, so the bar stays honest and indeterminate.
-      stepsTotal: null,
-      running: sending,
-      failed: toolActivities.some(item => item.status === 'failed'),
-      color: DEFAULT_BOT_NOTIFICATION_COLOR,
-    }] : []
-    void notificationSync.current.sync(active, preferences, new Date().getHours())
-  }, [selected, sending, streaming, toolActivities, profiles])
+    if (!selected || !(sending || toolActivities.length)) {
+      void notificationSync.current.sync([], preferences, new Date().getHours())
+      return
+    }
+
+    const activeTool = toolActivities[toolActivities.length - 1]
+    const thinkingStep = messages[messages.length - 1]?.role === 'assistant' ? messages[messages.length - 1].reasoning : null
+    const stage: BotStage = activeTool ? 'tools' : streaming ? 'writing' : 'thinking'
+    const detail = activeTool
+      ? activeTool.name
+      : streaming
+        ? 'Writing a reply'
+        : thinkingStep ? reasoningSnippet(thinkingStep) || 'Thinking' : 'Thinking'
+
+    let cancelled = false
+    void (async () => {
+      const meta = botProfile?.ui_meta?.['hermes-bots']
+      // The Bot's own avatar, so several working Bots are distinguishable at a glance.
+      const avatar = await rasterizeAvatarPng(selected.profile, meta?.shape, meta?.color)
+      if (cancelled) return
+      const active: BotActivity[] = [{
+        key: `${selected.profile}::${selected.id}`,
+        bot: botProfile?.display_name || titleize(selected.profile),
+        profile: selected.profile,
+        detail,
+        stage,
+        stepsDone: toolActivities.filter(item => item.status === 'done').length,
+        // No todo total is published yet, so the bar is a coarse phase estimate.
+        stepsTotal: null,
+        running: sending,
+        failed: toolActivities.some(item => item.status === 'failed'),
+        color: DEFAULT_BOT_NOTIFICATION_COLOR,
+        avatar,
+      }]
+      await notificationSync.current.sync(active, preferences, new Date().getHours())
+    })()
+    return () => { cancelled = true }
+  }, [selected, sending, streaming, toolActivities, profiles, messages])
 
   // Wide screens (tablet landscape, unfolded foldables) get the three-column
   // workspace. Narrow phones keep the single-surface flow untouched.
