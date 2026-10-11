@@ -19,6 +19,9 @@ import type { LiveMessage, LiveProfile, LiveSession, LiveUsage } from '../hermes
 type Timeline = LiveMessage & { local?: boolean }
 type Props = {
   session: LiveSession
+  // In the wide tri-fold the chat lives in a middle column beside the Bots rail,
+  // so going "back" has nowhere to go — the header shows the Bot's avatar instead.
+  wide?: boolean
   conversationLoading: boolean
   messages: Timeline[]
   settledAssistant: { content: string; usage?: LiveUsage } | null
@@ -41,7 +44,7 @@ type Props = {
 
 const titleize = (value: string) => value.split(/[-_]+/).filter(Boolean).map(part => part[0].toUpperCase() + part.slice(1)).join(' ')
 
-export function ChatView({ session, conversationLoading, messages, settledAssistant, profiles, streaming, sending, toolActivities, error, back, refresh, openProfile, onSessionModelChange, submit, submitVoice, stop, clarify, onClarifyAnswer }: Props) {
+export function ChatView({ session, wide = false, conversationLoading, messages, settledAssistant, profiles, streaming, sending, toolActivities, error, back, refresh, openProfile, onSessionModelChange, submit, submitVoice, stop, clarify, onClarifyAnswer }: Props) {
   const shellRef = useRef<HTMLElement>(null)
   useEdgeSwipeBack(shellRef, back)
   const threadRef = useRef<HTMLDivElement>(null)
@@ -188,9 +191,11 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
 
   return <main ref={shellRef} className="app chat-shell" onDragOver={onDragOver} onDrop={onDrop} onDragLeave={() => setDraggingFiles(false)}>
     {draggingFiles && <div className="file-drop-overlay" aria-live="polite"><div><Paperclip size={24}/><b>Drop files to upload to Hermes</b><span>Documents stay on the host for Hermes to read</span></div></div>}
-    <header className={`chat-header${headerElevated ? ' elevated' : ''}`}>
-      <button className="round-control" onClick={back} aria-label="Back"><ArrowDown size={18} className="back-chevron"/></button>
-      <div className="chat-title"><button className="chat-identity-button" onClick={openProfile} aria-label={`Open ${botName} settings`}><BotAvatar profile={botProfile} fallbackName={session.profile} variant="header"/><span><b>{botName}</b><small>{sending ? 'Working' : formatModelLabel(modelLabel || session.model)}</small></span></button></div>
+    <header className={`chat-header${headerElevated ? ' elevated' : ''}${wide ? ' wide-header' : ''}`}>
+      {wide
+        ? <span className="chat-header-avatar"><BotAvatar profile={botProfile} fallbackName={session.profile} variant="header"/></span>
+        : <button className="round-control" onClick={back} aria-label="Back"><ArrowDown size={18} className="back-chevron"/></button>}
+      <div className="chat-title"><button className="chat-identity-button" onClick={openProfile} aria-label={`Open ${botName} settings`}>{!wide && <BotAvatar profile={botProfile} fallbackName={session.profile} variant="header"/>}<span><b>{botName}</b><small>{sending ? 'Working' : formatModelLabel(modelLabel || session.model)}</small></span></button></div>
       <button className="round-control" onClick={refresh} aria-label="Refresh conversation"><RotateCw size={16}/></button>
     </header>
 

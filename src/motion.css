@@ -188,6 +188,12 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
    which also pushes the frozen header out of view. */
 .wide-main .roster-list-scroll,.wide-main .thread-scroll,.wide-main .tasks-sheet,.wide-main .management-sheet{flex:1 1 0;min-height:0;overflow-y:auto}
 
+/* In the tri-fold the header's back control has nowhere to go (its column is the
+   Bots rail), so the Bot's own avatar stands in that slot instead — a little
+   larger than the inline avatar it replaces, matching the round controls' 40px. */
+.chat-header-avatar{display:flex;align-items:center;justify-content:center}
+.chat-header-avatar .bot-avatar-slot,.chat-header-avatar .avatar-fallback{width:40px;height:40px;min-width:40px;flex:0 0 40px;border-radius:14px;font-size:14px}
+
 /* Reveal the rail again from the column edge once it is hidden. */
 .wide-rail-reveal{position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:40;width:16px;height:56px;border:1px solid var(--border);border-left:0;border-radius:0 10px 10px 0;background:var(--panel);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .wide-context-empty{margin:22px 16px;color:var(--muted);font-size:11.5px;line-height:1.55}
