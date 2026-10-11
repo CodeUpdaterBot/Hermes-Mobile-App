@@ -1,0 +1,67 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { describe, expect, it } from 'vitest'
+
+const motionCss = readFileSync(resolve(process.cwd(), 'src/motion.css'), 'utf8')
+const entrySource = readFileSync(resolve(process.cwd(), 'src/main.tsx'), 'utf8')
+
+describe('motion layer contract', () => {
+  it('loads last so it refines component styles instead of being overridden by them', () => {
+    const motionImport = entrySource.indexOf("import './motion.css'")
+    const componentImports = ["import './styles.css'", "import './chat.css'", "import './theme.css'", "import './edge-swipe.css'"]
+      .map(entry => entrySource.indexOf(entry))
+    expect(motionImport).toBeGreaterThan(-1)
+    for (const index of componentImports) {
+      expect(index).toBeGreaterThan(-1)
+      expect(motionImport).toBeGreaterThan(index)
+    }
+  })
+
+  it('installs the global tactile feedback listener at startup', () => {
+    expect(entrySource).toContain("import { installHapticFeedback } from './haptics'")
+    expect(entrySource).toContain('installHapticFeedback()')
+  })
+
+  it('neutralises the platform tap highlight and double-tap zoom', () => {
+    expect(motionCss).toContain('-webkit-tap-highlight-color:rgba(0,0,0,0)')
+    expect(motionCss).toContain('touch-action:manipulation')
+  })
+
+  it('drives press feedback with the independent scale property so it composes with existing transforms', () => {
+    expect(motionCss).toContain('scale:var(--press-scale)')
+    expect(motionCss).toContain('transition:scale var(--motion-fast)')
+    // A press rule must never clobber an element's own transform.
+    const pressBlocks = motionCss.split('}').filter(block => block.includes(':active:not(:disabled)'))
+    expect(pressBlocks.length).toBeGreaterThan(0)
+    for (const block of pressBlocks) expect(block).not.toContain('transform:scale(')
+  })
+
+  it('releases screen transitions instead of retaining a transform', () => {
+    // A retained translate/scale would make the screen root a containing block
+    // for position:fixed action bars and modal backdrops.
+    const start = motionCss.indexOf('.app,.panel.connection-screen')
+    expect(start).toBeGreaterThan(-1)
+    const rule = motionCss.slice(start, motionCss.indexOf('}', start))
+    expect(rule).toContain('backwards')
+    expect(rule).not.toContain('both')
+  })
+
+  it('defines directional push and pop transitions', () => {
+    expect(motionCss).toContain("html[data-nav='forward']")
+    expect(motionCss).toContain("html[data-nav='back']")
+    expect(motionCss).toContain('@keyframes nav-push-in')
+    expect(motionCss).toContain('@keyframes nav-pop-in')
+  })
+
+  it('keeps a global reduced-motion kill switch', () => {
+    expect(motionCss).toContain('@media (prefers-reduced-motion:reduce)')
+    const reduced = motionCss.slice(motionCss.indexOf('@media (prefers-reduced-motion:reduce)'))
+    expect(reduced).toContain('animation-duration:1ms!important')
+    expect(reduced).toContain('transition-duration:1ms!important')
+    expect(reduced).toContain('scale:1')
+  })
+
+  it('never reserves desktop scrollbar chrome in the mobile shell', () => {
+    expect(motionCss).not.toContain('overflow:hidden')
+  })
+})
