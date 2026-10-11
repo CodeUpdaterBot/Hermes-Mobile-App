@@ -8,6 +8,7 @@ import { BotProfileSheet } from './components/BotProfileSheet'
 import { TasksView } from './components/TasksView'
 import { ConnectionSettings } from './components/ConnectionSettings'
 import { ComputerPane } from './components/ComputerPane'
+import { BotRoutines } from './components/BotRoutines'
 import { onBackButtonPress } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { flushSync } from 'react-dom'
@@ -18,7 +19,8 @@ import { isActiveChatTurn } from './chat-turn'
 import { errorMessage, RequestEpoch, selectRestoredEndpoint } from './connection-state'
 import { navDirectionFor, setNavDirection } from './nav-direction'
 import { haptic } from './haptics'
-import { connectAndSubmit, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
+import { connectAndSubmit, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, setServerRequestHandler, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
+import { parseClarifyQuestions } from './clarify'
 import { readNotificationPreferences, type BotActivity, type BotStage } from './bot-notifications'
 import { createNotificationSync, DEFAULT_BOT_NOTIFICATION_COLOR } from './notification-service'
 import { rasterizeAvatarPng } from './avatar-raster'
@@ -407,6 +409,31 @@ export default function App() {
     return () => query.removeEventListener('change', onChange)
   }, [])
 
+  // The host asks the user questions mid-turn (`clarify`). Answering over the same
+  // socket is what releases its turn: an ignored request stalls until the host's
+  // own clarify timeout, so anything unanswerable is refused immediately instead.
+  const clarifyResolverRef = useRef<((reply: { result: unknown }) => void) | null>(null)
+  const [clarifyParams, setClarifyParams] = useState<unknown | null>(null)
+  useEffect(() => {
+    setServerRequestHandler(request => {
+      if (request.method !== 'clarify') {
+        return Promise.resolve({ error: { code: -32601, message: `Method not found: ${request.method}` } })
+      }
+      if (!parseClarifyQuestions(request.params).length) return Promise.resolve({ result: {} })
+      return new Promise<{ result: unknown }>(resolve => {
+        clarifyResolverRef.current = resolve
+        setClarifyParams(request.params)
+      })
+    })
+    return () => setServerRequestHandler(undefined)
+  }, [])
+
+  const answerClarify = useCallback((result: unknown) => {
+    clarifyResolverRef.current?.({ result })
+    clarifyResolverRef.current = null
+    setClarifyParams(null)
+  }, [])
+
   const handleSessionModelChange = useCallback((model: string) => {
     setSelected(current => current ? { ...current, model } : current)
   }, [])
@@ -466,7 +493,7 @@ export default function App() {
   if (createOpen) return <CreateWizard step={createStep} setStep={setCreateStep} draft={botDraft} setDraft={setBotDraft} creating={creating} error={error} close={() => { setCreateOpen(false); setCreateStep(0); setError('') }} finish={() => void finishCreate()}/>
   if (settings) return <ConnectionSettings profiles={profiles.length} botProfiles={profiles} sessions={sessions.length} connected={connectionStatus === 'connected'} endpoint={activeEndpoint !== 'http://127.0.0.1:9119' ? activeEndpoint : undefined} theme={theme} setTheme={setTheme} close={() => setSettings(false)} refresh={() => refresh()} onPairingBusy={setPairingBusyState} onPaired={async endpoint => { const normalized = activateEndpoint(endpoint); const data = await refresh(normalized, true); if (!data) throw new Error(lastConnectionErrorRef.current || 'Signed in, but authenticated Hermes REST or live WebSocket verification failed.'); localStorage.setItem('hermes-mobile-active-endpoint', normalized) }}/>
   if (selected && profileSheet) return <BotProfileSheet profile={profiles.find(profile => profile.name === selected.profile)} session={selected} onClose={() => setProfileSheet(false)} onUpdated={() => void refresh()}/>
-  const chatView = selected ? <ChatView session={selected} conversationLoading={conversationLoading} messages={messages} settledAssistant={settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null} profiles={profiles} streaming={streaming} sending={sending} toolActivities={toolActivities} error={error} back={() => setSelected(null)} refresh={() => void openSession(selected)} openProfile={() => setProfileSheet(true)} onSessionModelChange={handleSessionModelChange} submit={submit} submitVoice={submitVoice} stop={stop}/> : null
+  const chatView = selected ? <ChatView session={selected} conversationLoading={conversationLoading} messages={messages} settledAssistant={settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null} profiles={profiles} streaming={streaming} sending={sending} toolActivities={toolActivities} error={error} back={() => setSelected(null)} refresh={() => void openSession(selected)} openProfile={() => setProfileSheet(true)} onSessionModelChange={handleSessionModelChange} submit={submit} submitVoice={submitVoice} stop={stop} clarify={clarifyParams} onClarifyAnswer={answerClarify}/> : null
 
   // Three-column workspace: Bots, the conversation, and the Bot's own computer.
   if (selected && wide) return <div className={`wide-shell${railCollapsed ? ' rail-collapsed' : ''}`}>
@@ -476,7 +503,7 @@ export default function App() {
       <section className="bot-list wide-rail-list">{rows.map(({ profile, session }, index) => <button className={`bot-row${session?.id === selected.id ? ' selected' : ''}`} style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={profile.name} disabled={!session} onClick={() => session && void openSession(session)}><BotAvatar profile={profile} fallbackName={profile.name}/><span className="bot-copy"><b>{profile.display_name || titleize(profile.name)}</b><small>{session?.preview || profile.description || 'No messages yet'}</small></span><span className="meta">{ago(session?.last_active)}{session && <i className={session.unread ? 'unread' : ''}/>}</span></button>)}</section>
     </aside>
     <div className="wide-main">{chatView}</div>
-    <aside className="wide-context">{computerOpen ? <ComputerPane profile={selected.profile} botName={profiles.find(profile => profile.name === selected.profile)?.display_name || (selected.title && selected.title !== 'Bot Chat' ? selected.title : titleize(selected.profile))} onClose={() => setComputerOpen(false)}/> : <div className="computer-pane"><button className="secondary wide" onClick={() => setComputerOpen(true)}><Monitor size={15}/> Show computer</button></div>}</aside>
+    <aside className="wide-context">{computerOpen ? <ComputerPane profile={selected.profile} botName={profiles.find(profile => profile.name === selected.profile)?.display_name || (selected.title && selected.title !== 'Bot Chat' ? selected.title : titleize(selected.profile))} onClose={() => setComputerOpen(false)}/> : <div className="computer-pane"><button className="secondary wide" onClick={() => setComputerOpen(true)}><Monitor size={15}/> Show computer</button></div>}<BotRoutines profile={selected.profile} onNewRoutine={() => { setSelected(null); setTab('tasks') }}/></aside>
   </div>
 
   if (chatView) return chatView

@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 
-import { HermesGatewayClient, type GatewayEvent } from './gateway'
+import { HermesGatewayClient, type GatewayEvent, type ServerRequest, type ServerRequestReply } from './gateway'
 import type { RosterProfile } from './live-model'
 import type { DisplayStatus } from './display'
 
@@ -71,6 +71,16 @@ function gateway(baseUrl = activeHermes) {
     gateways.set(baseUrl, client)
   }
   return client
+}
+
+/**
+ * Answer host-initiated requests (the `clarify` tool) for a given host.
+ *
+ * Registered on the shared client because the socket is per-host and durable: a
+ * second connection would not receive the question at all.
+ */
+export function setServerRequestHandler(handler?: (request: ServerRequest) => Promise<ServerRequestReply>, baseUrl = activeHermes): void {
+  gateway(baseUrl).setRequestHandler(handler)
 }
 
 async function rpcCall<T>(method: string, params: Record<string, unknown>, baseUrl = activeHermes): Promise<T> {

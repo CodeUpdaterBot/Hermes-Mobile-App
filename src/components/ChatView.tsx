@@ -12,6 +12,7 @@ import { useEdgeSwipeBack } from '../edge-swipe'
 import { modelLabel as formatModelLabel } from '../model-label'
 import { buildTranscript, type ActivityStep } from '../activity-group'
 import { ActivityBubble } from './ActivityBubble'
+import { ClarifyCard } from './ClarifyCard'
 import { Composer, type ComposerDropFilesRef, type ComposerEditRequest } from './Composer'
 import type { LiveMessage, LiveProfile, LiveSession, LiveUsage } from '../hermes'
 
@@ -33,11 +34,14 @@ type Props = {
   submit: (attachments: { name: string; refText: string }[], text: string) => Promise<boolean>
   submitVoice: (text: string) => Promise<boolean>
   stop: () => void
+  /** Raw params of a host clarify request awaiting an answer, if any. */
+  clarify?: unknown | null
+  onClarifyAnswer: (result: unknown) => void
 }
 
 const titleize = (value: string) => value.split(/[-_]+/).filter(Boolean).map(part => part[0].toUpperCase() + part.slice(1)).join(' ')
 
-export function ChatView({ session, conversationLoading, messages, settledAssistant, profiles, streaming, sending, toolActivities, error, back, refresh, openProfile, onSessionModelChange, submit, submitVoice, stop }: Props) {
+export function ChatView({ session, conversationLoading, messages, settledAssistant, profiles, streaming, sending, toolActivities, error, back, refresh, openProfile, onSessionModelChange, submit, submitVoice, stop, clarify, onClarifyAnswer }: Props) {
   const shellRef = useRef<HTMLElement>(null)
   useEdgeSwipeBack(shellRef, back)
   const threadRef = useRef<HTMLDivElement>(null)
@@ -205,6 +209,8 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
     </div>
 
     {!following && <button className="latest-button" onClick={() => scrollToLatest()}><ArrowDown size={15}/><span>Latest{unreadBelow ? ` · ${unreadBelow}` : ''}</span></button>}
+
+    {clarify ? <ClarifyCard params={clarify} onAnswer={onClarifyAnswer}/> : null}
 
     <Composer session={session} profiles={profiles} sending={sending} draggingFiles={draggingFiles} editRequest={editRequest} dropFilesRef={dropFilesRef} onControlError={setControlError} onModelLabel={setModelLabel} onSessionModelChange={onSessionModelChange} submit={submit} submitVoice={submitVoice} stop={stop}/>
   </main>

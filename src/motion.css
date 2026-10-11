@@ -193,6 +193,57 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 .computer-command code{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:"JetBrains Mono",ui-monospace,monospace}
 .computer-command span{color:var(--muted);flex:0 0 auto}
 
+/* ---------- Clarify card ---------- */
+
+/* The host asking a question mid-turn. Sits directly above the composer so it
+   reads as part of the conversation rather than a separate screen. */
+.clarify-card{margin:0 16px 10px;border:1px solid var(--border);border-radius:14px;background:var(--panel);color:var(--text);box-shadow:0 -8px 26px rgba(0,0,0,.28);animation:sheet-rise var(--motion-medium) var(--ease-out) backwards}
+.clarify-head{display:flex;align-items:flex-start;gap:10px;padding:13px 13px 10px 15px}
+.clarify-head>div{flex:1 1 auto;min-width:0}
+.clarify-head b{display:block;font-size:13.5px;font-weight:650}
+.clarify-head small{display:block;margin-top:3px;color:var(--muted);font-size:11.5px;line-height:1.45}
+.clarify-close{flex:0 0 auto;width:30px;height:30px;border:0;border-radius:9px;background:transparent;color:var(--quiet);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.clarify-body{max-height:46dvh;overflow-y:auto;overscroll-behavior:contain;padding:0 13px 4px 15px;scrollbar-width:none}
+.clarify-body::-webkit-scrollbar{display:none;width:0}
+.clarify-question+.clarify-question{margin-top:14px;padding-top:13px;border-top:1px solid var(--border)}
+.clarify-prompt{margin:0 0 9px;color:var(--secondary);font-size:12.5px;line-height:1.45}
+.clarify-choices{display:flex;flex-direction:column;gap:7px}
+.clarify-choice{display:flex;align-items:center;gap:11px;width:100%;min-height:44px;padding:9px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font-size:13px;text-align:left;cursor:pointer;touch-action:manipulation}
+.clarify-choice i{flex:0 0 auto;width:22px;height:22px;border-radius:6px;background:var(--panel);color:var(--muted);font:600 11px system-ui;font-style:normal;display:flex;align-items:center;justify-content:center}
+.clarify-choice span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clarify-choice.selected{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface))}
+.clarify-choice.selected i{background:var(--accent);color:#fff}
+.clarify-input{width:100%;margin-top:8px;min-height:44px;padding:0 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font-size:13px}
+.clarify-input::placeholder{color:var(--quiet)}
+.clarify-actions{display:flex;gap:9px;padding:12px 13px 13px 15px}
+.clarify-actions button{flex:1 1 auto}
+.clarify-actions button:disabled{opacity:.5}
+
+/* ---------- Routines (wide right column) ---------- */
+
+.routines{border-top:1px solid var(--border);margin-top:6px;padding:14px 14px 4px}
+.routines-head{display:flex;align-items:center;gap:7px;color:var(--muted)}
+.routines-head svg{flex:0 0 auto}
+.routines-head b{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase}
+.routines-list{margin:10px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
+.routine{display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
+.routine:last-child{border-bottom:0}
+.routine-dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.routine-dot.paused{background:var(--quiet)}
+.routine-dot.running{background:var(--accent);animation:tool-pulse 1.4s infinite}
+.routine-dot.error{background:#e0a44a}
+.routine-copy{display:flex;min-width:0;flex-direction:column}
+.routine-copy b{font-size:12.5px;font-weight:550;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.routine-copy small{margin-top:2px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.routine-state{flex:0 0 auto;color:var(--muted);font-size:10.5px;font-weight:600}
+.routine-state.error{color:#e0a44a}
+/* A paused routine stays visible but recedes, so pausing never hides the way back. */
+.routine.off .routine-copy b,.routine.off .routine-copy small{color:var(--quiet)}
+.routine.off .routine-state{color:var(--quiet)}
+.routines-note{margin:10px 0 0;color:var(--muted);font-size:11.5px}
+.routines-note.warn{color:#f18088}
+.routines-new{margin-top:12px;width:100%;min-height:38px;border:1px dashed var(--border);border-radius:9px;background:transparent;color:var(--secondary);font-size:12px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+
 /* ---------- Press physics ---------- */
 
 /* The independent `scale` property is used deliberately: it composes with any

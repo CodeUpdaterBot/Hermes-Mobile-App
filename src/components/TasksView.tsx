@@ -5,10 +5,10 @@ import { NewTaskSheet } from './NewTaskSheet'
 import { loadCronJob, loadCronJobs, loadCronRuns, triggerCronJob, updateCronPrompt, updateCronJob, type CronJob, type CronRun, type LiveProfile } from '../hermes'
 import { useEdgeSwipeBack } from '../edge-swipe'
 import { haptic } from '../haptics'
+// Shared with the wide-layout Routines column so the two cannot disagree.
+import { cronJobTitle as jobTitle, cronStateOf as stateOf } from '../cron-state'
 
 type Props = { back: () => void; profiles: LiveProfile[] }
-const jobTitle = (job: CronJob) => (job.name || 'Untitled task').replace(/^\[bot:[^\]]+\]\s*/i, '')
-const stateOf = (job: CronJob) => job.state === 'paused' || job.enabled === false ? 'paused' : job.state === 'running' ? 'running' : job.last_error ? 'error' : 'scheduled'
 const dateLabel = (value?: number | string) => { if (!value) return '—'; const date = new Date(typeof value === 'number' ? value * 1000 : value); return Number.isNaN(date.valueOf()) ? String(value) : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) }
 
 export function reconcileTaskJobs(serverJobs: CronJob[], optimisticJobs: ReadonlyMap<string, CronJob>): { jobs: CronJob[]; pending: Map<string, CronJob> } {
