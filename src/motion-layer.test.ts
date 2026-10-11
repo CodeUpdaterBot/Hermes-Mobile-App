@@ -64,4 +64,44 @@ describe('motion layer contract', () => {
   it('never reserves desktop scrollbar chrome in the mobile shell', () => {
     expect(motionCss).not.toContain('overflow:hidden')
   })
+
+  it('gives every full-screen surface a real height so it owns its scrolling', () => {
+    // A `min-height`-only page grows to fit its content and never scrolls, which
+    // hands scrolling to the document scroller (where the scrollbar chrome is
+    // hidden) and leaves wheel/touch input with nothing to move.
+    const surfaces = ['.profile-sheet,.management-sheet,.tasks-sheet,.task-detail{', '.app.panel,.app.wizard{']
+    for (const selector of surfaces) {
+      const start = motionCss.indexOf(selector)
+      expect(start, selector).toBeGreaterThan(-1)
+      const rule = motionCss.slice(start, motionCss.indexOf('}', start))
+      expect(rule, selector).toContain('height:100vh')
+      expect(rule, selector).toContain('height:100dvh')
+      expect(rule, selector).toContain('min-height:0')
+      expect(rule, selector).toContain('overflow-y:auto')
+    }
+  })
+
+  it('keeps overscroll containment off the root scroller', () => {
+    // A root-level overscroll declaration sits between the pointer and the page
+    // content; containment belongs on the individual scroll surfaces.
+    expect(motionCss).not.toMatch(/html\s*,\s*body\s*\{[^}]*overscroll/)
+    expect(motionCss).not.toMatch(/body\s*,\s*html\s*\{[^}]*overscroll/)
+    expect(motionCss).toContain('overscroll-behavior:contain')
+  })
+
+  it('does not rely on the Safari-only overflow-scrolling property', () => {
+    // `-webkit-overflow-scrolling` is a no-op in the Chromium WebViews this app
+    // ships in, so it only risks changing input handling for no benefit.
+    expect(motionCss).not.toContain('-webkit-overflow-scrolling')
+  })
+
+  it('presents sheets with a specificity that survives the directional rules', () => {
+    // `:is()` adopts its most specific argument, and the directional lists hold
+    // a two-class selector (`.panel.connection-screen`), so a single-class sheet
+    // selector silently loses and sheets slide instead of rising.
+    const start = motionCss.indexOf('html[data-nav] .app.wizard,')
+    expect(start).toBeGreaterThan(-1)
+    const rule = motionCss.slice(start, motionCss.indexOf('}', start))
+    expect(rule).toContain('animation:sheet-rise')
+  })
 })
