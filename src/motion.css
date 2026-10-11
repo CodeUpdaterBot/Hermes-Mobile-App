@@ -186,8 +186,11 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 .wide-divider:hover::after{background:var(--accent)}
 
 .wide-main{display:flex;min-width:0;flex-direction:column;background:var(--bg)}
-/* Inside a column any screen must fill it rather than re-centring itself. */
-.wide-main>.app{height:100%;max-width:none;margin:0;flex:1 1 auto}
+/* Inside a column any screen must fill it rather than re-centring itself. The flex
+   basis must be 0, not auto: a sheet that scrolls itself (Bot settings) would
+   otherwise be sized by its own content, grow past the clipped column, and become
+   impossible to scroll. */
+.wide-main>.app{height:100%;max-width:none;margin:0;flex:1 1 0;min-height:0}
 /* A screen's scroller must be sized by the column, never by its own content —
    `flex-basis:auto` lets a long roster grow the pane instead of scrolling it,
    which also pushes the frozen header out of view. */
@@ -202,6 +205,23 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 /* Reveal the rail again from the column edge once it is hidden. */
 .wide-rail-reveal{position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:40;width:16px;height:56px;border:1px solid var(--border);border-left:0;border-radius:0 10px 10px 0;background:var(--panel);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .wide-context-empty{margin:22px 16px;color:var(--muted);font-size:11.5px;line-height:1.55}
+
+/* ---------- Capabilities in the wide right column ---------- */
+
+/* Reuses the Capabilities screen's own row/section classes so the two render the
+   same thing; only spacing and the section separator are added here. */
+.sidebar-caps{border-top:1px solid var(--border);margin-top:6px;padding:14px 14px 20px}
+.sidebar-caps-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.sidebar-caps-head .profile-section-label{margin-bottom:0}
+.sidebar-caps-actions{display:flex;align-items:center;gap:2px}
+.sidebar-caps-actions button{border:0;background:transparent;color:var(--quiet);display:flex;padding:3px;cursor:pointer}
+.sidebar-caps-actions button:hover{color:var(--text)}
+.sidebar-caps .capability-search{margin-bottom:10px}
+.sidebar-caps .capability-save{margin:0 0 10px}
+/* The right column is the single scroller here — nested capped lists would trap the
+   wheel inside a 366px box and leave the rest of the sidebar unreachable. */
+.sidebar-caps .capability-list{max-height:none;overflow:visible}
+.sidebar-caps .capability-group-head{padding:12px 0 8px}
 
 /* ---------- Computer pane ---------- */
 

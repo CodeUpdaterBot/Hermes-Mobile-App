@@ -9,6 +9,7 @@ import { TasksView } from './components/TasksView'
 import { ConnectionSettings } from './components/ConnectionSettings'
 import { ComputerPane } from './components/ComputerPane'
 import { BotRoutines } from './components/BotRoutines'
+import { BotCapabilities } from './components/BotCapabilities'
 import { onBackButtonPress } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { flushSync } from 'react-dom'
@@ -558,6 +559,7 @@ export default function App() {
           ? <ComputerPane profile={selected.profile} botName={activeBotName} onClose={() => setComputerOpen(false)}/>
           : <div className="computer-pane"><button className="secondary wide" onClick={() => setComputerOpen(true)}><Monitor size={15}/> Show computer</button></div>}
         <BotRoutines profile={selected.profile} onNewRoutine={() => { setSelected(null); setTab('tasks') }}/>
+        <BotCapabilities profileName={selected.profile} onOpenSettings={() => setProfileSheet(true)} onUpdated={() => void refresh()}/>
       </> : <p className="wide-context-empty">Open a Bot to see its computer and routines.</p>}
     </aside>
   </div>
