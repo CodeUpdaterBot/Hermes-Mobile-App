@@ -180,6 +180,67 @@ export async function loadProfileDetails(profile: string, baseUrl = activeHermes
   return rpcCall<ProfileDetails>('profiles.describe', { name: profile }, baseUrl)
 }
 
+// ── Group chats (hosted rooms) ────────────────────────────────────────────────
+// Contract: tui_gateway/contracts/groups_bot_relay.py.
+// NOTE the addressing difference: the groups.* handlers resolve their profile from
+// `profile`, while profiles.* use `name`. `groups.create` also spends `name` on the
+// ROOM's name, so the two must not be confused.
+// Discovery does NOT need these: membership rides each Bot's profile metadata
+// (`ui_meta['hermes-bots'].groups`) and is aggregated in src/groups.ts.
+
+export type GroupCapabilities = { protocol_version?: number; driver?: boolean; persistent_process?: boolean; features?: string[]; methods?: string[]; max_log_limit?: number }
+export type GroupMember = { member_id?: string; profile?: string; handle?: string; display_name?: string }
+export type GroupRoom = { room_id: string; name: string; members?: GroupMember[]; revision?: number; latest_seq?: number | null; disbanded_at?: number | null }
+export type GroupEvent = { seq: number; kind: string; actor?: { kind: string; id: string }; payload?: Record<string, unknown>; created_at?: number }
+
+/** `driver: false` means this gateway will accept no room turns — the UI must say so. */
+export async function loadGroupCapabilities(profile: string, baseUrl = activeHermes): Promise<GroupCapabilities> {
+  return rpcCall<GroupCapabilities>('groups.capabilities', { profile }, baseUrl)
+}
+
+export async function listGroups(profile: string, baseUrl = activeHermes): Promise<GroupRoom[]> {
+  const result = await rpcCall<{ rooms?: GroupRoom[] }>('groups.list', { profile }, baseUrl)
+  return result.rooms || []
+}
+
+export async function loadGroupLog(profile: string, roomId: string, sinceSeq?: number, baseUrl = activeHermes): Promise<{ events: GroupEvent[]; cursor?: number; latest_seq?: number; has_more?: boolean }> {
+  return rpcCall('groups.log', { profile, room_id: roomId, ...(typeof sinceSeq === 'number' ? { since_seq: sinceSeq } : {}) }, baseUrl)
+}
+
+export async function createGroup(
+  profile: string,
+  room: { roomId: string; name: string; members: GroupMember[] },
+  baseUrl = activeHermes,
+): Promise<GroupRoom | undefined> {
+  const result = await rpcCall<{ room?: GroupRoom }>('groups.create', {
+    profile, room_id: room.roomId, name: room.name, members: room.members,
+  }, baseUrl)
+  return result.room
+}
+
+/** Appends one `message.user`; `payload` takes exactly `{ text, thread_id }`. */
+export async function sendGroupMessage(profile: string, roomId: string, text: string, threadId: string, baseUrl = activeHermes): Promise<void> {
+  await rpcCall('groups.send', { profile, room_id: roomId, payload: { text, thread_id: threadId } }, baseUrl)
+}
+
+/**
+ * Writes a Bot's group memberships into its profile metadata. The configure handler
+ * merges `ui_meta` key-wise, so the WHOLE `hermes-bots` object must be sent or the
+ * Bot's shape/colour/title are dropped. The legacy singular `group` key is left
+ * alone — `groups` is the shape Hermes Desktop writes for a multi-group Bot.
+ */
+export async function setProfileGroups(
+  profile: { name: string; ui_meta?: { 'hermes-bots'?: Record<string, unknown> } },
+  groups: string[],
+  baseUrl = activeHermes,
+): Promise<void> {
+  const existing = profile.ui_meta?.['hermes-bots'] || {}
+  await rpcCall('profiles.configure', {
+    name: profile.name,
+    ui_meta: { 'hermes-bots': { ...existing, groups } },
+  }, baseUrl)
+}
+
 // ── the Bot's own computer (display.*) ────────────────────────────────────────
 // Verified contract: tui_gateway/contracts/display.py. All are profile-scoped.
 

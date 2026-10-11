@@ -10,17 +10,19 @@ import { ConnectionSettings } from './components/ConnectionSettings'
 import { ComputerPane } from './components/ComputerPane'
 import { BotRoutines } from './components/BotRoutines'
 import { BotCapabilities } from './components/BotCapabilities'
+import { NewGroupSheet } from './components/NewGroupSheet'
 import { onBackButtonPress } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { flushSync } from 'react-dom'
 import { buildAttachmentPrompt, attachmentSummary } from './attachment-routing'
 import { buildBotRows, resolveCanonicalSessionId } from './live-model'
+import { groupsFromProfiles, groupNamesOf, newGroupRoomId } from './groups'
 import { settleAssistantResponse, type SettledAssistantResponse as SettledAssistantState } from './settled-assistant'
 import { isActiveChatTurn } from './chat-turn'
 import { errorMessage, RequestEpoch, selectRestoredEndpoint } from './connection-state'
 import { navDirectionFor, setNavDirection } from './nav-direction'
 import { haptic } from './haptics'
-import { connectAndSubmit, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, setServerRequestHandler, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
+import { connectAndSubmit, createGroup, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, setProfileGroups, setServerRequestHandler, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
 import { parseClarifyQuestions } from './clarify'
 import { readNotificationPreferences, type BotActivity, type BotStage } from './bot-notifications'
 import { createNotificationSync, DEFAULT_BOT_NOTIFICATION_COLOR } from './notification-service'
@@ -242,6 +244,15 @@ export default function App() {
     } satisfies LiveSession : null,
   })).filter(row => `${row.profile.name} ${row.profile.display_name || ''} ${row.session?.preview || ''}`.toLowerCase().includes(query.toLowerCase())), [profiles, query])
 
+  // Group chats are derived from each Bot's profile metadata, so the roster the app
+  // already loads is the authoritative list — no extra RPC round trip, and no
+  // separate group record that can drift from its members.
+  const groups = useMemo(() => groupsFromProfiles(profiles), [profiles])
+  const visibleGroups = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return needle ? groups.filter(group => group.name.toLowerCase().includes(needle)) : groups
+  }, [groups, query])
+
   const visibleSessions = useMemo(() => sessions.filter(session => `${session.title} ${session.profile} ${session.preview}`.toLowerCase().includes(query.toLowerCase())), [sessions, query])
 
   const openSession = useCallback((session: LiveSession, latestUsage?: LiveUsage): Promise<void> => {
@@ -403,6 +414,9 @@ export default function App() {
   const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 900px)').matches)
   const [railCollapsed, setRailCollapsed] = useState(false)
   const [contextCollapsed, setContextCollapsed] = useState(false)
+  const [newGroupOpen, setNewGroupOpen] = useState(false)
+  const [groupBusy, setGroupBusy] = useState(false)
+  const [groupError, setGroupError] = useState('')
   const [computerOpen, setComputerOpen] = useState(true)
   useEffect(() => {
     const query = window.matchMedia('(min-width: 900px)')
@@ -521,12 +535,41 @@ export default function App() {
     <div className="roster-list-scroll" ref={rosterScrollRef} onTouchStart={rosterTouchStart} onTouchMove={rosterTouchMove} onTouchEnd={rosterTouchEnd}>
       {rosterPullActive && <div className="roster-pull-cue" style={{ height: `${rosterPullRefreshing ? 46 : rosterPullDistance}px` }}><RefreshCw size={15} className={rosterPullRefreshing ? 'pull-refresh-spinner' : ''}/><span>{rosterPullRefreshing ? 'Refreshing…' : rosterPullDistance >= 56 ? 'Release to refresh' : 'Pull to refresh'}</span></div>}
       {error && <Notice message={error} retry={() => void refresh()}/>}
-      {loading && !profiles.length ? <Skeleton/> : tab === 'bots' ? <section className="bot-list">{rows.map(({ profile, session }, index) => <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={profile.name} disabled={!session} onClick={() => session && void openSession(session)}><BotAvatar profile={profile} fallbackName={profile.name}/><span className="bot-copy"><b>{profile.display_name || titleize(profile.name)}</b><small>{session?.preview || profile.description || 'No messages yet'} </small></span><span className="meta">{ago(session?.last_active)}{session && <i className={session.unread ? 'unread' : ''}/>}</span></button>)}</section> : <section className="bot-list">{visibleSessions.map((session, index) => <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={`${session.profile}:${session.id}`} onClick={() => void openSession(session)}><BotAvatar profile={profiles.find(profile => profile.name === session.profile)} fallbackName={session.profile} variant="session"/><span className="bot-copy"><b>{session.title || 'Untitled session'}</b><small>{titleize(session.profile)} · {session.preview}</small></span><span className="meta">{ago(session.last_active)}</span></button>)}</section>}
+      {loading && !profiles.length ? <Skeleton/> : tab === 'bots' ? <section className="bot-list">{visibleGroups.map((group, index) => <div className="bot-row group-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={`group:${group.name}`}><span className="group-glyph"><Users size={17}/></span><span className="bot-copy"><b>{group.name}</b><small>{group.members.length} bots · {group.members.map(name => titleize(name)).join(', ')}</small></span><span className="meta"/></div>)}{rows.map(({ profile, session }, index) => <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={profile.name} disabled={!session} onClick={() => session && void openSession(session)}><BotAvatar profile={profile} fallbackName={profile.name}/><span className="bot-copy"><b>{profile.display_name || titleize(profile.name)}</b><small>{session?.preview || profile.description || 'No messages yet'} </small></span><span className="meta">{ago(session?.last_active)}{session && <i className={session.unread ? 'unread' : ''}/>}</span></button>)}</section> : <section className="bot-list">{visibleSessions.map((session, index) => <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={`${session.profile}:${session.id}`} onClick={() => void openSession(session)}><BotAvatar profile={profiles.find(profile => profile.name === session.profile)} fallbackName={session.profile} variant="session"/><span className="bot-copy"><b>{session.title || 'Untitled session'}</b><small>{titleize(session.profile)} · {session.preview}</small></span><span className="meta">{ago(session.last_active)}</span></button>)}</section>}
     </div>
-    <footer className="roster-actions">{tab === 'bots' ? <><button className="secondary" disabled title="Group-room transport is not yet enabled"><Users size={16}/> New group</button><button className="primary" onClick={() => setCreateOpen(true)}><Plus size={16}/> New Bot</button></> : <button className="primary wide" onClick={() => setTab('bots')}>Back to Bots</button>}</footer>
+    <footer className="roster-actions">{tab === 'bots' ? <><button className="secondary" onClick={() => { setGroupError(''); setNewGroupOpen(true) }}><Users size={16}/> New group</button><button className="primary" onClick={() => setCreateOpen(true)}><Plus size={16}/> New Bot</button></> : <button className="primary wide" onClick={() => setTab('bots')}>Back to Bots</button>}</footer>
   </main>
 
-  const screen = createOpen ? wizardView : settings ? settingsView : profileView ?? chatView ?? (tab === 'tasks' ? tasksView : homeView)
+  // Membership is written first: it is what makes the group exist for every client
+  // and it does not need a room driver. Opening the room does, so a gateway without
+  // one still ends up with a usable, visible group rather than a silent failure.
+  async function createBotGroup(name: string, members: LiveProfile[]) {
+    setGroupBusy(true); setError('')
+    try {
+      for (const member of members) {
+        const existing = groupNamesOf(member)
+        if (!existing.includes(name)) await setProfileGroups(member, [...existing, name])
+      }
+      let roomWarning = ''
+      try {
+        await createGroup(members[0].name, {
+          roomId: newGroupRoomId(name), name,
+          members: members.map(member => ({ profile: member.name, handle: member.name, display_name: member.display_name || member.name })),
+        })
+      } catch (reason) {
+        roomWarning = reason instanceof Error ? reason.message : 'The gateway could not open this room.'
+      }
+      await refresh()
+      setNewGroupOpen(false)
+      if (roomWarning) setError(`Group “${name}” was saved, but the gateway could not open its room: ${roomWarning}`)
+    } catch (reason) {
+      setGroupError(reason instanceof Error ? reason.message : 'Could not create this group.')
+    } finally { setGroupBusy(false) }
+  }
+
+  const newGroupView = <NewGroupSheet profiles={profiles} busy={groupBusy} error={groupError} onClose={() => { setNewGroupOpen(false); setGroupError('') }} onCreate={(name, members) => void createBotGroup(name, members)}/>
+
+  const screen = newGroupOpen ? newGroupView : createOpen ? wizardView : settings ? settingsView : profileView ?? chatView ?? (tab === 'tasks' ? tasksView : homeView)
 
   if (!wide) return screen
 

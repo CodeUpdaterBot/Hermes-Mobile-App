@@ -237,6 +237,39 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 .sidebar-caps .capability-row small{display:block;-webkit-line-clamp:1;white-space:nowrap;text-overflow:ellipsis}
 .sidebar-caps .capability-group-head{padding:12px 0 8px}
 
+/* ---------- Group chats ---------- */
+
+/* A group row sits above the Bot rows and mirrors their rhythm; it is a glyph row
+   rather than an avatar row so a room is never mistaken for a Bot. */
+.bot-row.group-row{background:rgba(255,255,255,.03)}
+.group-glyph{width:40px;height:40px;min-width:40px;border-radius:14px;display:grid;place-items:center;background:var(--surface);border:1px solid var(--border);color:var(--secondary)}
+
+.new-group-body{padding:0 18px calc(26px + env(safe-area-inset-bottom))}
+.new-group-intro{margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5}
+.new-group-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.new-group-chip{display:flex;align-items:center;gap:6px;padding:5px 7px 5px 5px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);font-size:12px}
+.new-group-chip button{border:0;background:transparent;color:var(--quiet);display:flex;padding:0;cursor:pointer}
+.new-group-search{display:flex;align-items:center;gap:8px;height:42px;padding:0 10px;margin-bottom:10px;border:1px solid var(--border);border-radius:12px;background:var(--panel);color:var(--quiet)}
+.new-group-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--text);font-size:13px;outline:none}
+/* Bounded so a long roster cannot push the name field and Create off-screen. */
+.new-group-list{max-height:min(340px,42dvh);overflow-y:auto;overscroll-behavior:auto;border:1px solid var(--border);border-radius:14px;background:var(--panel);scrollbar-width:none}
+.new-group-list::-webkit-scrollbar{display:none;width:0}
+.new-group-row{width:100%;display:flex;align-items:center;gap:11px;padding:11px 12px;border:0;border-bottom:1px solid var(--border);background:transparent;text-align:left;cursor:pointer}
+.new-group-row:last-child{border-bottom:0}
+.new-group-row.selected{background:rgba(53,199,89,.10)}
+.new-group-row:disabled{opacity:.45;cursor:not-allowed}
+.new-group-row-copy{display:flex;flex-direction:column;min-width:0;flex:1}
+.new-group-row-copy b{font-size:13px;font-weight:590;color:var(--text)}
+.new-group-row-copy small{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.new-group-check{width:22px;height:22px;min-width:22px;border-radius:7px;display:grid;place-items:center;background:#35c759;color:#04270f}
+.new-group-add{width:22px;height:22px;min-width:22px;border-radius:7px;display:grid;place-items:center;border:1px dashed var(--border);color:var(--quiet)}
+.new-group-hint{margin:8px 0 0;color:var(--muted);font-size:11.5px}
+.new-group-name{display:grid;gap:6px;margin-top:14px}
+.new-group-name>span{color:var(--muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.new-group-name input{height:44px;padding:0 12px;border:1px solid var(--border);border-radius:12px;background:var(--panel);color:var(--text);font-size:14px;outline:none}
+.new-group-actions{display:flex;gap:10px;margin-top:16px}
+.new-group-actions button{flex:1;min-height:46px;display:flex;align-items:center;justify-content:center;gap:7px}
+
 /* ---------- Computer pane ---------- */
 
 .wide-context{min-width:0;overflow-y:auto;overscroll-behavior:contain;background:var(--bg);scrollbar-width:none}
