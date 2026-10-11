@@ -62,6 +62,18 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 }
 .task-create-sheet{height:100vh;height:100dvh;min-height:0}
 
+/* The remaining full-screen pages declare `overflow-y:auto` with a hidden
+   scrollbar (the same internal-scroll intent as the sheets) but inherit only
+   `min-height` from `.app`, so they grew to their content instead of scrolling
+   and left wheel scrolling to the document. `.roster-shell` and `.chat-shell`
+   already constrain their height this way and keep their own inner scrollers. */
+.app.panel,.app.wizard{
+  height:100vh;
+  height:100dvh;
+  min-height:0;
+  overflow-y:auto;
+}
+
 /* ---------- Press physics ---------- */
 
 /* The independent `scale` property is used deliberately: it composes with any
