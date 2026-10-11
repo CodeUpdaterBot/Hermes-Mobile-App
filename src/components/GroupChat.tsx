@@ -4,7 +4,7 @@ import { ArrowDown, RotateCw, Send, Users } from 'lucide-react'
 import type { GroupEvent, GroupMember, GroupRoom, LiveProfile } from '../hermes'
 import { createGroup, listGroups, loadGroupCapabilities, loadGroupLog, sendGroupMessage } from '../hermes'
 import type { BotGroup } from '../groups'
-import { newGroupRoomId } from '../groups'
+import { groupMembersFor, newGroupRoomId } from '../groups'
 import { BotAvatar } from './BotAvatar'
 
 type Props = { group: BotGroup; profiles: LiveProfile[]; wide?: boolean; back: () => void }
@@ -80,7 +80,7 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
         if (!found && caps.driver) {
           await createGroup(anchor, {
             roomId: newGroupRoomId(group.name), name: group.name,
-            members: group.members.map(name => ({ profile: name, handle: name })),
+            members: groupMembersFor(group.members.map(name => ({ name, display_name: profiles.find(item => item.name === name)?.display_name }))),
           })
           rooms = await listGroups(anchor)
           found = rooms.find(item => item.name === group.name)

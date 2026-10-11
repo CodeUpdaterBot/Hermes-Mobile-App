@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { RosterProfile } from './live-model'
-import { checkGroupSize, groupNamesOf, groupsFromProfiles, groupsToWrite, newGroupRoomId, suggestGroupName } from './groups'
+import { checkGroupSize, groupMembersFor, groupNamesOf, groupsFromProfiles, groupsToWrite, memberIdFor, newGroupRoomId, suggestGroupName } from './groups'
 
 const bot = (name: string, meta?: Record<string, unknown>): RosterProfile => ({
   name,
@@ -68,5 +68,25 @@ describe('Bot groups', () => {
 
   it('suggests a name from the chosen Bots', () => {
     expect(suggestGroupName([bot('patcher'), bot('signal')])).toBe('patcher, signal')
+  })
+
+  // groups.create rejects a member without member_id ("member 0 is missing fields"),
+  // and Hermes' own member ids are 24 lowercase hex.
+  it('derives a stable 24-hex member id, distinct per Bot', () => {
+    const id = memberIdFor('patcher')
+    expect(id).toMatch(/^[0-9a-f]{24}$/)
+    expect(memberIdFor('patcher')).toBe(id)
+    expect(memberIdFor('signal')).not.toBe(id)
+  })
+
+  it('builds member rows in exactly the fields groups.create requires', () => {
+    const rows = groupMembersFor([bot('patcher'), bot('signal')])
+    // Required: member_id + profile + handle. display_name is optional and only sent
+    // when the Bot has one; extra fields are rejected by the gateway.
+    expect(Object.keys(rows[0]).sort()).toEqual(['handle', 'member_id', 'profile'])
+    expect(rows[0].member_id).toMatch(/^[0-9a-f]{24}$/)
+    expect(rows[0].profile).toBe('patcher')
+    expect(rows[0].handle).toBe('patcher')
+    expect(groupMembersFor([{ name: 'named', display_name: 'Named Bot' }])[0].display_name).toBe('Named Bot')
   })
 })

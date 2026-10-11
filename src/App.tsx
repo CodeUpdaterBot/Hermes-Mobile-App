@@ -17,7 +17,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { flushSync } from 'react-dom'
 import { buildAttachmentPrompt, attachmentSummary } from './attachment-routing'
 import { buildBotRows, resolveCanonicalSessionId } from './live-model'
-import { groupsFromProfiles, groupNamesOf, newGroupRoomId } from './groups'
+import { groupMembersFor, groupNamesOf, groupsFromProfiles, newGroupRoomId } from './groups'
 import { settleAssistantResponse, type SettledAssistantResponse as SettledAssistantState } from './settled-assistant'
 import { isActiveChatTurn } from './chat-turn'
 import { errorMessage, RequestEpoch, selectRestoredEndpoint } from './connection-state'
@@ -569,7 +569,9 @@ export default function App() {
       try {
         await createGroup(members[0].name, {
           roomId: newGroupRoomId(name), name,
-          members: members.map(member => ({ profile: member.name, handle: member.name, display_name: member.display_name || member.name })),
+          // groups.create requires member_id + profile + handle on every member and
+          // rejects anything else, so the rows come from one shared builder.
+          members: groupMembersFor(members),
         })
       } catch (reason) {
         roomWarning = reason instanceof Error ? reason.message : 'The gateway could not open this room.'

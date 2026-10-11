@@ -66,8 +66,39 @@ export function groupsToWrite(names: string[]): string[] {
   return out
 }
 
-export type GroupSizeCheck = { ok: true } | { ok: false; reason: string }
+/**
+ * A stable, identifier-safe room member id for a Bot.
+ *
+ * `groups.create` requires `member_id`, `profile` and `handle` on every member and
+ * rejects unknown fields — sending only profile/handle fails with
+ * "member 0 is missing fields: member_id". Hermes' own member ids are 24 lowercase
+ * hex, so derive the same shape deterministically from the profile name: the same
+ * Bot gets the same id on every client, and a retry cannot fork a member.
+ */
+export function memberIdFor(profileName: string): string {
+  let hex = ''
+  for (let round = 0; hex.length < 24; round++) {
+    let h = (0x811c9dc5 ^ Math.imul(round + 1, 0x9e3779b9)) >>> 0
+    for (let index = 0; index < profileName.length; index++) {
+      h = (h ^ profileName.charCodeAt(index)) >>> 0
+      h = Math.imul(h, 0x01000193) >>> 0
+    }
+    hex += h.toString(16).padStart(8, '0')
+  }
+  return hex.slice(0, 24)
+}
 
+/** The member rows `groups.create` expects, in its exact field set. */
+export function groupMembersFor(profiles: RosterProfile[]): { member_id: string; profile: string; handle: string; display_name?: string }[] {
+  return profiles.map(profile => ({
+    member_id: memberIdFor(profile.name),
+    profile: profile.name,
+    handle: profile.name,
+    ...(profile.display_name ? { display_name: profile.display_name } : {}),
+  }))
+}
+
+export type GroupSizeCheck = { ok: true } | { ok: false; reason: string }
 /**
  * A room is a discussion between Bots, so one Bot is not a group; and the picker
  * is deliberately capped so a group stays a legible conversation.
