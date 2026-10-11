@@ -54,12 +54,13 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
    sits between the pointer and the content). A real height makes the sheet a
    native-style scroll surface, so the pointer always drives the sheet. */
 .profile-sheet,.management-sheet,.tasks-sheet,.task-detail{
+  height:100vh;
   height:100dvh;
   min-height:0;
   overflow-y:auto;
   overscroll-behavior:contain;
 }
-.task-create-sheet{height:100dvh;min-height:0}
+.task-create-sheet{height:100vh;height:100dvh;min-height:0}
 
 /* ---------- Press physics ---------- */
 
