@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowDown, RotateCw, Send, Users } from 'lucide-react'
 
 import type { GroupEvent, GroupMember, GroupRoom, LiveProfile } from '../hermes'
-import { listGroups, loadGroupLog, sendGroupMessage } from '../hermes'
+import { createGroup, listGroups, loadGroupCapabilities, loadGroupLog, sendGroupMessage } from '../hermes'
 import type { BotGroup } from '../groups'
+import { newGroupRoomId } from '../groups'
 import { BotAvatar } from './BotAvatar'
 
 type Props = { group: BotGroup; profiles: LiveProfile[]; wide?: boolean; back: () => void }
@@ -56,6 +57,7 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
   const [nonce, setNonce] = useState(0)
+  const [driver, setDriver] = useState<boolean | null>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   // The room service is profile-scoped; any member's profile addresses the room.
   const anchor = group.members[0]
@@ -63,11 +65,26 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
 
   useEffect(() => {
     let active = true
-    setLoading(true); setRoomError('')
+    setLoading(true); setRoomError(''); setDriver(null)
     void (async () => {
       try {
-        const rooms = await listGroups(anchor)
-        const found = rooms.find(item => item.name === group.name)
+        // Ask the gateway what it can do before assuming: `driver: false` means no
+        // room turn can run here — a different situation from "no room yet".
+        const caps = await loadGroupCapabilities(anchor)
+        if (active) setDriver(Boolean(caps.driver))
+        let rooms = await listGroups(anchor)
+        let found = rooms.find(item => item.name === group.name)
+        // Membership rides in the Bots' profiles but a room lives on a gateway, so a
+        // group can be visible everywhere and still have no room. Open it here when
+        // the gateway can drive one — idempotent, so a retry cannot fork the room.
+        if (!found && caps.driver) {
+          await createGroup(anchor, {
+            roomId: newGroupRoomId(group.name), name: group.name,
+            members: group.members.map(name => ({ profile: name, handle: name })),
+          })
+          rooms = await listGroups(anchor)
+          found = rooms.find(item => item.name === group.name)
+        }
         if (!active) return
         setRoom(found || null)
         if (!found) { setLines([]); return }
@@ -113,7 +130,9 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
         {!loading && !room && !roomError && <div className="group-empty">
           <span className="group-glyph"><Users size={20}/></span>
           <b>{group.name}</b>
-          <p>This group has no room on the gateway yet. It was created from this Bot metadata, so its members can see it — a room opens when the gateway has a room driver and a member is seated.</p>
+          <p>{driver === false
+            ? 'The gateway this app is connected to reports no group-room driver, so it cannot host this conversation. Its members still see the group; the room needs a gateway that runs the driver.'
+            : 'This group has no room on the gateway yet. Its membership lives in the Bots’ own profiles, so every client can see it — the room opens when a member is seated.'}</p>
         </div>}
 
         {roomError && <p className="group-status error">{roomError}</p>}
@@ -141,7 +160,7 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
 
     <div className="chat-dock">
       {sendError && <p className="group-status error">{sendError}</p>}
-      {!room && !loading && <p className="group-status">Messages can be sent once this group has a room on the gateway.</p>}
+      {!room && !loading && <p className="group-status">{driver === false ? 'This gateway reports no group-room driver, so turns cannot run here.' : 'Messages can be sent once this group has a room on the gateway.'}</p>}
       <div className="ai-composer">
         <textarea
           value={draft}
