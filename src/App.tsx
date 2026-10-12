@@ -104,15 +104,23 @@ export default function App() {
   const [rosterPullRefreshing, setRosterPullRefreshing] = useState(false)
   const rosterScrollRef = useRef<HTMLDivElement | null>(null)
   const rosterPullStartRef = useRef<number | null>(null)
+  // A group chat is a screen of its own, not a mode of the Bot chat: it renders in the
+  // same pane, so it has to be a first-class stop for Android Back and the edge-swipe
+  // gesture (both walked past it before, which is why a group could not be swiped out of).
+  const [openGroupName, setOpenGroupName] = useState<string | null>(null)
 
-  const navigationRef = useRef({ selected: false, profileSheet: false, settings: false, createOpen: false, tab: 'bots' as Tab })
-  navigationRef.current = { selected: Boolean(selected), profileSheet, settings, createOpen, tab }
+  const navigationRef = useRef({ selected: false, profileSheet: false, settings: false, createOpen: false, group: false, tab: 'bots' as Tab })
+  navigationRef.current = {
+    selected: Boolean(selected), profileSheet, settings, createOpen,
+    group: Boolean(openGroupName), tab,
+  }
 
   // Screen depth drives directional transitions: moving deeper pushes in,
   // coming back pops in. Layout effect so the attribute is written before the
   // browser paints the newly mounted screen.
   const screenDepth = createOpen || settings ? 1
     : selected ? (profileSheet ? 2 : 1)
+    : openGroupName ? 1
     : tab === 'tasks' ? 1
     : 0
   const previousDepthRef = useRef(0)
@@ -131,6 +139,9 @@ export default function App() {
       if (backEvent.defaultPrevented) return true
       const navigation = navigationRef.current
       if (navigation.profileSheet) { setProfileSheet(false); return true }
+      // The group screen sits above the Bot chat: closing it must come first, or Back
+      // leaves the group mounted and the next press walks past it entirely.
+      if (navigation.group) { setOpenGroupName(null); return true }
       if (navigation.selected) { setSelected(null); return true }
       if (navigation.settings) { setSettings(false); return true }
       if (navigation.createOpen) { setCreateOpen(false); return true }
@@ -444,7 +455,6 @@ export default function App() {
   const [railWidth, setRailWidth] = useState<number | null>(null)
   const [contextWidth, setContextWidth] = useState<number | null>(null)
   const [newGroupOpen, setNewGroupOpen] = useState(false)
-  const [openGroupName, setOpenGroupName] = useState<string | null>(null)
   const [groupBusy, setGroupBusy] = useState(false)
   const [groupError, setGroupError] = useState('')
   const [computerOpen, setComputerOpen] = useState(true)

@@ -6,9 +6,13 @@ import { createGroup, listGroups, loadGroupCapabilities, loadGroupLog, sendGroup
 import type { BotGroup } from '../groups'
 import { groupMembersFor, groupRoomId } from '../groups'
 import { readRoomIds, rememberRoomId, resolveRoom } from '../group-rooms'
+import { useEdgeSwipeBack } from '../edge-swipe'
 import { BotAvatar } from './BotAvatar'
 
 type Props = { group: BotGroup; profiles: LiveProfile[]; wide?: boolean; back: () => void }
+
+/** How often an open room is polled for events appended after the last read. */
+const ROOM_POLL_MS = 1500
 
 type Line =
   | { kind: 'user'; key: string; text: string }
@@ -22,10 +26,23 @@ function memberOf(room: GroupRoom | null, memberId?: string): GroupMember | unde
   return (room?.members || []).find(member => member.member_id === memberId)
 }
 
+/**
+ * A room event's `payload` as an object. The gateway serialises it as JSON, and a
+ * transport is free to hand it back as the string it travelled in — reading `payload.text`
+ * off a string yielded empty bubbles, so normalise before it reaches the renderer.
+ */
+function eventPayload(event: GroupEvent): Record<string, unknown> {
+  const raw = event.payload
+  if (typeof raw === 'string') {
+    try { const parsed: unknown = JSON.parse(raw); return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {} } catch { return {} }
+  }
+  return raw && typeof raw === 'object' ? raw : {}
+}
+
 function toLines(events: GroupEvent[], room: GroupRoom | null): Line[] {
   const lines: Line[] = []
   for (const event of events) {
-    const payload = event.payload || {}
+    const payload = eventPayload(event)
     const text = typeof payload.text === 'string' ? payload.text : ''
     const key = `${event.seq}`
     if (event.kind === 'message.user') { lines.push({ kind: 'user', key, text }); continue }
@@ -61,13 +78,34 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
   const [driver, setDriver] = useState<boolean | null>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
+  const shellRef = useRef<HTMLElement>(null)
+  // The room log read so far, keyed by seq: a poll appends only what is new, and the
+  // highest seq we hold is the `since_seq` for the next read.
+  const eventsRef = useRef<GroupEvent[]>([])
+  const cursorRef = useRef(0)
   // The room service is profile-scoped; any member's profile addresses the room.
   const anchor = group.members[0]
   const memberLine = group.members.map(name => titleize(name)).join(', ')
 
+  // A group chat is a nested screen exactly like a Bot chat, so it owns the same
+  // edge-swipe-to-go-back contract (the wide layout has no back gesture at all).
+  useEdgeSwipeBack(shellRef, back, !wide)
+
+  /** Merge newly read events into the thread and advance the read cursor. */
+  const mergeEvents = (roomForLines: GroupRoom | null, incoming: GroupEvent[]): Line[] => {
+    const bySeq = new Map(eventsRef.current.map(event => [event.seq, event]))
+    for (const event of incoming) bySeq.set(event.seq, event)
+    eventsRef.current = [...bySeq.values()].sort((a, b) => a.seq - b.seq)
+    const newest = eventsRef.current[eventsRef.current.length - 1]
+    if (newest) cursorRef.current = Math.max(cursorRef.current, newest.seq)
+    return toLines(eventsRef.current, roomForLines)
+  }
+
   useEffect(() => {
     let active = true
     setLoading(true); setRoomError(''); setDriver(null)
+    // A fresh read owns the thread: stale events from another room must not survive it.
+    eventsRef.current = []; cursorRef.current = 0
     void (async () => {
       try {
         // Ask the gateway what it can do before assuming: `driver: false` means no
@@ -78,7 +116,7 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
         // Address the room by the id the app minted for it, so a same-name re-create
         // on the gateway is never mistaken for the room we already know. Falling back
         // to the name is what lets a group created by another client still be found.
-        let found = resolveRoom(rooms, readRoomIds()[group.name], group.name)
+        let found = resolveRoom(rooms, readRoomIds()[group.name], group.name, groupRoomId(group.name))
         // A group's membership rides in the Bots' profiles while its room lives on a
         // gateway, so a group can exist everywhere and have no room here. Opening it on
         // demand is safe because the id is derived from the group name and
@@ -107,18 +145,42 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
         }
         if (!active) return
         setRoom(found || null)
-        if (!found) { setLines([]); return }
+        if (!found) { eventsRef.current = []; setLines([]); return }
         // Pin the id the gateway actually holds for this room, so a later open addresses
         // it exactly instead of re-deriving it from a name two rooms could share.
         rememberRoomId(group.name, found.room_id)
         const log = await loadGroupLog(anchor, found.room_id)
-        if (active) setLines(toLines(log.events || [], found))
+        if (active) setLines(mergeEvents(found, log.events || []))
       } catch (reason) {
         if (active) setRoomError(reason instanceof Error ? reason.message : 'Could not read this group’s room.')
       } finally { if (active) setLoading(false) }
     })()
     return () => { active = false }
   }, [anchor, group.name, nonce])
+
+  /**
+   * A room's replies are written by the gateway's turn driver *after* the message is
+   * accepted, so a thread that is read once shows the question and nothing else until
+   * someone refreshes it. While the room is open, read the log from the last seq we hold —
+   * `since_seq` makes each read a delta — and appended events land in the thread on their own.
+   */
+  useEffect(() => {
+    if (!room) return
+    let active = true
+    const poll = async () => {
+      try {
+        const log = await loadGroupLog(anchor, room.room_id, cursorRef.current)
+        const incoming = log.events || []
+        if (!active || !incoming.length) return
+        setLines(current => {
+          const next = mergeEvents(room, incoming)
+          return next.length === current.length ? current : next
+        })
+      } catch { /* a transient read failure must not tear down an open thread */ }
+    }
+    const timer = window.setInterval(() => void poll(), ROOM_POLL_MS)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [anchor, room])
 
   useEffect(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }) }, [lines.length])
 
@@ -140,14 +202,16 @@ export function GroupChat({ group, profiles, wide = false, back }: Props) {
       // `thread_id` ties the message to its turn; `event_id` is the idempotency key.
       await sendGroupMessage(anchor, room.room_id, text, `t-${Date.now().toString(36)}`, `e-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
       setDraft('')
+      // Read the thread back straight away (the user's own message is already in it), then let
+      // the open-room poll pick up the members' replies as the driver writes them.
       const log = await loadGroupLog(anchor, room.room_id)
-      setLines(toLines(log.events || [], room))
+      setLines(mergeEvents(room, log.events || []))
     } catch (reason) {
       setSendError(reason instanceof Error ? reason.message : 'Could not send to this group.')
     } finally { setSending(false) }
   }
 
-  return <main className="app chat-shell">
+  return <main className="app chat-shell" ref={shellRef}>
     <header className={`chat-header${wide ? ' wide-header' : ''}`}>
       {wide
         ? <span className="chat-header-avatar"><span className="group-glyph"><Users size={17}/></span></span>
