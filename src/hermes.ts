@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 
 import { HermesGatewayClient, type GatewayEvent, type ServerRequest, type ServerRequestReply } from './gateway'
 import type { RosterProfile } from './live-model'
-import type { DisplayStatus } from './display'
+import type { DisplayObserve, DisplayStatus } from './display'
 
 export type LiveProfile = RosterProfile
 export type LiveSession = { id: string; title: string; preview: string; profile: string; model?: string; unread?: boolean; last_active?: number }
@@ -60,6 +60,14 @@ export function buildCanonicalSessionParams(profile: string): Record<string, unk
 export const localHermes = 'http://127.0.0.1:9119'
 let activeHermes = localHermes
 export function setActiveHermesEndpoint(endpoint: string) { activeHermes = endpoint.replace(/\/$/, '') }
+
+/**
+ * The endpoint this client is pointed at, for URLs the native layer does not build.
+ * The gateway socket's own URL comes from Rust (`hermes_ws_url`) because it needs a
+ * minted ticket; the Bot Desktop socket is authorised by ITS ticket in the query
+ * string instead, so its URL is plain string work.
+ */
+export function activeHermesEndpoint(): string { return activeHermes }
 
 const gateways = new Map<string, HermesGatewayClient>()
 const resolvedSessions = new Map<string, string>()
@@ -264,12 +272,32 @@ export async function startDisplay(profile: string, baseUrl = activeHermes): Pro
   return rpcCall<DisplayStatus>('display.start', { profile }, baseUrl)
 }
 
-export async function acquireDisplayLease(profile: string, baseUrl = activeHermes): Promise<unknown> {
-  return rpcCall('display.lease_acquire', { profile }, baseUrl)
+/**
+ * Mint the RFB ticket + viewer id for this profile's screen (`display.observe`).
+ *
+ * The host refuses the ticket while the screen is stopped, so this is only called
+ * once `display.status` reports a running screen. Passing a `viewerId` this
+ * connection minted earlier keeps its identity across a reconnect — which is what
+ * lets a client that lost its socket take control again without being a stranger.
+ */
+export async function observeDisplay(profile: string, viewerId?: string, baseUrl = activeHermes): Promise<DisplayObserve> {
+  return rpcCall<DisplayObserve>('display.observe', { profile, ...(viewerId ? { viewer_id: viewerId } : {}) }, baseUrl)
 }
 
-export async function releaseDisplayLease(profile: string, baseUrl = activeHermes): Promise<unknown> {
-  return rpcCall('display.lease_release', { profile }, baseUrl)
+/**
+ * Take over / hand back the screen.
+ *
+ * The method names are dotted (`display.lease.acquire`) because that is the name the
+ * host registers and documents in `tui_gateway/contracts/display.py`; the underscore
+ * spelling these helpers used before matched nothing and always failed. The lease
+ * names a `viewer_id`, and the host rejects one this connection did not mint.
+ */
+export async function acquireDisplayLease(profile: string, viewerId: string, baseUrl = activeHermes): Promise<unknown> {
+  return rpcCall('display.lease.acquire', { profile, viewer_id: viewerId }, baseUrl)
+}
+
+export async function releaseDisplayLease(profile: string, viewerId: string, baseUrl = activeHermes): Promise<unknown> {
+  return rpcCall('display.lease.release', { profile, viewer_id: viewerId }, baseUrl)
 }
 
 export async function attachFile(sessionId: string, profile: string, input: { name: string; dataUrl: string; path?: string }, baseUrl = activeHermes): Promise<{ name: string; refText: string }> {

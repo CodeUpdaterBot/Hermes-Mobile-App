@@ -310,6 +310,11 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 .computer-frame{position:relative;aspect-ratio:16/10;border:1px solid var(--border);border-radius:10px;background:var(--surface);overflow:hidden;display:flex;align-items:center;justify-content:center}
 .computer-frame img{width:100%;height:100%;object-fit:cover;display:block}
 .computer-frame span{padding:0 14px;color:var(--muted);font-size:11.5px;text-align:center;line-height:1.5}
+/* The live screen: noVNC owns this element and paints its own canvas inside it. */
+.display-viewer{position:absolute;inset:0;background:#0b0d12;touch-action:none}
+.display-viewer canvas{width:100%!important;height:100%!important;display:block;outline:none}
+/* While another human is typing the host sends no frames, so the last one is covered. */
+.display-cover{position:absolute;inset:0;background:rgba(11,13,18,.94);display:flex;align-items:center;justify-content:center;text-align:center;padding:0 18px;color:var(--muted);font-size:11.5px;line-height:1.5}
 .computer-lease{display:flex;align-items:center;gap:7px;color:var(--secondary);font-size:11.5px}
 .computer-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:0 0 auto}
 .computer-dot.human{background:#e0a44a}
