@@ -26,6 +26,8 @@ import { errorMessage, RequestEpoch, selectRestoredEndpoint } from './connection
 import { navDirectionFor, setNavDirection } from './nav-direction'
 import { haptic } from './haptics'
 import { connectAndSubmit, createGroup, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, setProfileGroups, setServerRequestHandler, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
+import { reconcileMessages, TURN_SILENCE_MS } from './chat-reconcile'
+import { readWideLayout, saveWideLayout, WIDE_QUERY, type WideLayout } from './wide-layout'
 import { parseClarifyQuestions } from './clarify'
 import { readNotificationPreferences, type BotActivity, type BotStage } from './bot-notifications'
 import { createNotificationSync, DEFAULT_BOT_NOTIFICATION_COLOR } from './notification-service'
@@ -69,6 +71,10 @@ export default function App() {
   const sessionLoadRef = useRef(0)
   const [profileSheet, setProfileSheet] = useState(false)
   const [messages, setMessages] = useState<LiveMessage[]>([])
+  // Read by the silence watchdog, which must see the current transcript without depending on
+  // it — depending on it would restart the silence timer on every streamed token.
+  const messagesRef = useRef<LiveMessage[]>([])
+  messagesRef.current = messages
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeEndpoint, setActiveEndpoint] = useState(() => selectRestoredEndpoint(null, localStorage.getItem('hermes-mobile-active-endpoint'), 'http://127.0.0.1:9119'))
@@ -87,6 +93,9 @@ export default function App() {
   const [sending, setSending] = useState(false)
   const sendingRef = useRef(false)
   sendingRef.current = sending
+  // When the host last sent ANY event for the running turn. A stream that stops emitting is
+  // the only evidence the client has lost the turn, so the watchdog measures silence here.
+  const turnActivityRef = useRef(0)
   const [toolActivities, setToolActivities] = useState<ToolActivity[]>([])
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
@@ -337,8 +346,11 @@ export default function App() {
     setToolActivities([])
     setMessages(items => [...items, ...(priorAssistantMessage ? [priorAssistantMessage] : []), localUserMessage])
     try {
+      turnActivityRef.current = Date.now()
       await connectAndSubmit(turnSession.id, turnSession.profile, prompt, (type, payload) => {
         if (!isCurrentTurn()) return
+        // Any event — including a tool tick — proves the turn is still alive on the host.
+        turnActivityRef.current = Date.now()
         if (type === 'message.delta') {
           finalText += String(payload.text || '')
           setStreaming(finalText)
@@ -445,24 +457,91 @@ export default function App() {
     return () => { cancelled = true }
   }, [selected, sending, streaming, toolActivities, profiles, messages])
 
+  // A running turn reaches this client only as a stream of host events, and that stream can
+  // stop without any error being raised: a socket goes half-open over a network, or a
+  // reconnect clears this session's listeners. The host still finishes the reply, so the app
+  // is left showing a bubble that stopped moving and the finished text is found only by
+  // refreshing. While a turn is in flight, watch for silence and adopt the host's transcript
+  // once it has moved on without us — the reply then appears on its own.
+  useEffect(() => {
+    if (!sending || !selected) return
+    const sessionId = selected.id
+    const profile = selected.profile
+    let reading = false
+    const timer = window.setInterval(() => {
+      if (reading || Date.now() - turnActivityRef.current < TURN_SILENCE_MS) return
+      reading = true
+      void (async () => {
+        try {
+          const loaded = await loadMessages(sessionId, profile)
+          if (selectedRef.current?.id !== sessionId) return
+          const { messages: next, settled } = reconcileMessages(messagesRef.current, loaded)
+          if (!settled) return
+          // The host has the finished reply. Show it, stop pretending this client is still
+          // streaming, and retire the in-flight turn so its late result cannot overwrite this.
+          chatTurnGenerationRef.current += 1
+          setMessages(next)
+          setSettledAssistant(null)
+          setStreaming('')
+          setToolActivities([])
+          setSending(false)
+          turnActivityRef.current = Date.now()
+          void refresh()
+        } catch { /* the next tick tries again */ } finally { reading = false }
+      })()
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [sending, selected, refresh])
+
   // Wide screens (tablet landscape, unfolded foldables) get the three-column
   // workspace. Narrow phones keep the single-surface flow untouched.
-  const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 900px)').matches)
-  const [railCollapsed, setRailCollapsed] = useState(false)
-  const [contextCollapsed, setContextCollapsed] = useState(false)
-  // Dragged column widths. Null means "use the stylesheet's values", so the responsive
-  // defaults still apply until the user actually drags a divider.
-  const [railWidth, setRailWidth] = useState<number | null>(null)
-  const [contextWidth, setContextWidth] = useState<number | null>(null)
+  const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia(WIDE_QUERY).matches)
+  // The user's own column layout — dragged widths and collapsed columns — restored across
+  // launches. The default hides the right column, so the conversation gets the space until the
+  // pane is asked for; a stored choice always beats that default.
+  const [layout, setLayout] = useState<WideLayout>(() => readWideLayout())
+  const { railCollapsed, contextCollapsed, railWidth, contextWidth } = layout
+  const updateLayout = useCallback((patch: Partial<WideLayout>) => {
+    setLayout(current => {
+      const next = { ...current, ...patch }
+      saveWideLayout(next)
+      return next
+    })
+  }, [])
   const [newGroupOpen, setNewGroupOpen] = useState(false)
   const [groupBusy, setGroupBusy] = useState(false)
   const [groupError, setGroupError] = useState('')
   const [computerOpen, setComputerOpen] = useState(true)
+  // Folding a phone changes the viewport, and a media-query listener alone is too late for it:
+  // on Android WebView that event waits for the resize to settle, so the unfolded layout
+  // arrives after the user is already looking at the narrow one. Every signal that can
+  // accompany or precede the new size is subscribed, and each one re-reads the CURRENT width
+  // instead of trusting the event payload — whichever fires first wins.
   useEffect(() => {
-    const query = window.matchMedia('(min-width: 900px)')
-    const onChange = (event: MediaQueryListEvent) => setWide(event.matches)
-    query.addEventListener('change', onChange)
-    return () => query.removeEventListener('change', onChange)
+    const read = () => {
+      const matched = window.matchMedia(WIDE_QUERY).matches
+      setWide(current => (current === matched ? current : matched))
+    }
+    const query = window.matchMedia(WIDE_QUERY)
+    query.addEventListener('change', read)
+    window.addEventListener('resize', read)
+    window.addEventListener('orientationchange', read)
+    const viewport = window.visualViewport
+    viewport?.addEventListener('resize', read)
+    const orientation = window.screen?.orientation
+    orientation?.addEventListener('change', read)
+    // A WebView can resize the root element without dispatching a window resize first.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(read)
+    observer?.observe(document.documentElement)
+    read()
+    return () => {
+      query.removeEventListener('change', read)
+      window.removeEventListener('resize', read)
+      window.removeEventListener('orientationchange', read)
+      viewport?.removeEventListener('resize', read)
+      orientation?.removeEventListener('change', read)
+      observer?.disconnect()
+    }
   }, [])
 
   // Widening while on the Bots list must not show a second copy of the roster in
@@ -657,14 +736,14 @@ export default function App() {
       // The right column grows leftwards, so its delta is inverted.
       const next = kind === 'rail' ? startWidth + delta : startWidth - delta
       const clamped = Math.max(180, Math.min(460, next))
-      if (kind === 'rail') setRailWidth(clamped); else setContextWidth(clamped)
+      if (kind === 'rail') updateLayout({ railWidth: clamped }); else updateLayout({ contextWidth: clamped })
     }
     const onUp = () => {
       handle.removeEventListener('pointermove', onMove)
       handle.removeEventListener('pointerup', onUp)
       handle.removeEventListener('pointercancel', onUp)
       if (dragged) return
-      if (kind === 'rail') setRailCollapsed(value => !value); else setContextCollapsed(value => !value)
+      if (kind === 'rail') updateLayout({ railCollapsed: !railCollapsed }); else updateLayout({ contextCollapsed: !contextCollapsed })
     }
     handle.addEventListener('pointermove', onMove)
     handle.addEventListener('pointerup', onUp)
@@ -677,8 +756,8 @@ export default function App() {
     style={railWidth === null && contextWidth === null ? undefined : {
       gridTemplateColumns: `${railCollapsed ? 0 : railWidth ?? 296}px 7px minmax(340px,1fr) 7px ${contextCollapsed ? 0 : contextWidth ?? 296}px`,
     }}>
-    {railCollapsed && <button className="wide-rail-reveal" onClick={() => setRailCollapsed(false)} aria-label="Show Bots column"><ChevronRight size={13}/></button>}
-    {contextCollapsed && <button className="wide-context-reveal" onClick={() => setContextCollapsed(false)} aria-label="Show computer column"><ChevronLeft size={13}/></button>}
+    {railCollapsed && <button className="wide-rail-reveal" onClick={() => updateLayout({ railCollapsed: false })} aria-label="Show Bots column"><ChevronRight size={13}/></button>}
+    {contextCollapsed && <button className="wide-context-reveal" onClick={() => updateLayout({ contextCollapsed: false })} aria-label="Show computer column"><ChevronLeft size={13}/></button>}
 
     <aside className="wide-rail" aria-label="Bots">
       <header className="wide-rail-head">
