@@ -17,6 +17,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { flushSync } from 'react-dom'
 import { buildAttachmentPrompt, attachmentSummary } from './attachment-routing'
 import { buildBotRows, resolveCanonicalSessionId } from './live-model'
+import { GatewayRpcError } from './gateway'
 import { groupKey, groupMembersFor, groupNamesOf, groupsFromProfiles, groupRoomId } from './groups'
 import { rememberRoomId } from './group-rooms'
 import { settleAssistantResponse, type SettledAssistantResponse as SettledAssistantState } from './settled-assistant'
@@ -358,7 +359,16 @@ export default function App() {
       await refresh()
       return true
     } catch (reason) {
-      if (isCurrentTurn()) setError(reason instanceof Error ? reason.message : 'Could not send to Hermes.')
+      if (isCurrentTurn()) {
+        // A held lease is not a failure of this app. Hermes allows one live process per
+        // session, so a chat the Desktop is holding cannot be driven from this device -
+        // its transcript still reads, only sending is refused. Explain that and name the
+        // two real options, instead of echoing the raw refusal at the user.
+        const held = reason instanceof GatewayRpcError && reason.sessionHeldElsewhere
+        setError(held
+          ? 'This chat is open in another Hermes window, so it cannot take a message from this device. Close it there to continue here, or start a new chat with this Bot.'
+          : errorMessage(reason, 'Could not send to Hermes.'))
+      }
       return false
     } finally {
       if (isCurrentTurn()) {

@@ -47,6 +47,17 @@ export class GatewayRpcError extends Error {
     this.name = 'GatewayRpcError'
   }
 
+  /**
+   * Hermes allows exactly ONE live process to drive a session's turns, recorded in a
+   * per-profile lease registry. When another runtime (the Hermes Desktop's own local
+   * backend) holds that lease, the turn is refused with "This chat is open in another
+   * Hermes window/terminal". The transcript still reads fine - only sending is blocked -
+   * so the client must recognise this and explain it rather than showing a raw error.
+   */
+  get sessionHeldElsewhere() {
+    return /open in another Hermes window\/terminal/i.test(this.message)
+  }
+
   get safeToResubmit() {
     return this.data.safe_to_resubmit === true
   }
