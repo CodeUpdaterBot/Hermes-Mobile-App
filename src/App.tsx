@@ -31,6 +31,7 @@ import { readWideLayout, saveWideLayout, WIDE_QUERY, type WideLayout } from './w
 import { parseClarifyQuestions } from './clarify'
 import { readNotificationPreferences, type BotActivity, type BotStage } from './bot-notifications'
 import { createNotificationSync, DEFAULT_BOT_NOTIFICATION_COLOR } from './notification-service'
+import { onNotificationResync } from './notification-bus'
 import { rasterizeAvatarPng } from './avatar-raster'
 import { reasoningSnippet } from './activity-group'
 
@@ -415,6 +416,10 @@ export default function App() {
   // session-scoped, and its global `sessions.changed` is a bare "refetch the list"
   // signal that carries no progress at all.
   const notificationSync = useRef(createNotificationSync())
+  // A permission grant is invisible to the effect below, so the settings screen nudges this
+  // counter and the sync re-runs: the notification for work already in flight appears at once.
+  const [notificationNudge, setNotificationNudge] = useState(0)
+  useEffect(() => onNotificationResync(() => setNotificationNudge(value => value + 1)), [])
   useEffect(() => {
     const preferences = readNotificationPreferences()
     const botProfile = selected ? profiles.find(profile => profile.name === selected.profile) : undefined
@@ -455,7 +460,7 @@ export default function App() {
       await notificationSync.current.sync(active, preferences, new Date().getHours())
     })()
     return () => { cancelled = true }
-  }, [selected, sending, streaming, toolActivities, profiles, messages])
+  }, [selected, sending, streaming, toolActivities, profiles, messages, notificationNudge])
 
   // A running turn reaches this client only as a stream of host events, and that stream can
   // stop without any error being raised: a socket goes half-open over a network, or a
