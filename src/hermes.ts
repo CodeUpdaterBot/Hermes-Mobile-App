@@ -223,7 +223,20 @@ export async function createSession(
 ): Promise<{ id: string; storedId: string }> {
   const client = gateway(baseUrl)
   const created = await client.call<{ session_id?: string; stored_session_id?: string }>(
-    'session.create', buildCanonicalSessionParams(profile),
+    'session.create',
+    {
+      ...buildCanonicalSessionParams(profile),
+      // SEED the session. session.create's own contract: "a DB row appears on the first
+      // prompt unless seeded" — and the app reads a transcript from the STORED row
+      // (hermes_session_messages -> GET /api/sessions/{id}/messages). Unseeded, a brand-new
+      // chat has nothing to read and the conversation fails to load.
+      //
+      // The content must be NON-EMPTY: session_history._coerce_seed_history drops any row
+      // whose content does not survive .strip(), so an empty seed silently does nothing.
+      // display_kind "hidden" is the one kind a seeding client may author and the renderer
+      // does not paint it, so the conversation still opens visually empty.
+      messages: [{ role: 'user', content: 'New chat', display_kind: 'hidden' }],
+    },
   )
   const id = created.session_id
   if (!id) throw new Error('Hermes did not return the new chat’s id.')
