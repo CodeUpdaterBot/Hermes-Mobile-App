@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { canTakeControl, displayPaneState, leaseLabel, thumbnailPolicy, type DisplayStatus } from './display'
+import { canTakeControl, displayPaneState, displaySocketUrl, keepViewerId, leaseLabel, thumbnailPolicy, type DisplayStatus } from './display'
 
 const base: DisplayStatus = {
   profile: 'inbox-manager',
@@ -83,5 +83,30 @@ describe('leaseLabel', () => {
     expect(leaseLabel(human, false)).toBe('In use by someone else')
     expect(leaseLabel(status(), false)).toBe('The Bot has control')
     expect(leaseLabel(null, false)).toBe('')
+  })
+})
+
+describe('displaySocketUrl', () => {
+  // The ticket IS the credential: noVNC's Websock owns the socket and cannot set a
+  // header or negotiate a subprotocol, which is why the host mints it into the query.
+  it('turns the endpoint into a ws URL and carries the ticket in the query', () => {
+    expect(displaySocketUrl('http://100.118.101.75:9119', 'TICKET'))
+      .toBe('ws://100.118.101.75:9119/api/display/ws?display_ticket=TICKET')
+  })
+
+  it('uses wss for an https endpoint, tolerates a trailing slash and escapes the ticket', () => {
+    expect(displaySocketUrl('https://host.example/', 'T/1+2'))
+      .toBe('wss://host.example/api/display/ws?display_ticket=T%2F1%2B2')
+  })
+})
+
+describe('keepViewerId', () => {
+  // The lease refuses an id this connection did not mint, so identity must survive a
+  // reconnect — but only while it is still the same screen.
+  it('keeps the id for a running screen and forgets it otherwise', () => {
+    expect(keepViewerId(status(), 'v-1')).toBe('v-1')
+    expect(keepViewerId(status({ running: false }), 'v-1')).toBeUndefined()
+    expect(keepViewerId(status({ supported: false }), 'v-1')).toBeUndefined()
+    expect(keepViewerId(status(), null)).toBeUndefined()
   })
 })

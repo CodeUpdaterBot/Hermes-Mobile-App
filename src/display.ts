@@ -38,6 +38,37 @@ export type DisplayStatus = {
   profile_key: string
 }
 
+/**
+ * `display.observe`'s answer: the status plus a single-use 30 s ticket for the RFB
+ * socket and the `viewer_id` this connection minted.
+ *
+ * The viewer id is a capability, not a label: `display.lease.acquire` / `release`
+ * refuse an id this connection did not mint, and the host's RFB filter only lets
+ * keyboard and pointer through from the viewer that currently holds the lease. Open
+ * the socket and take control with the SAME id, or the screen stays read-only.
+ */
+export type DisplayObserve = DisplayStatus & { ticket: string; path: string; viewer_id: string }
+
+/**
+ * The RFB socket URL for a minted ticket.
+ *
+ * The ticket rides in the query string deliberately: noVNC's Websock owns the socket
+ * and cannot negotiate a subprotocol or set a header, so a ticket is the only
+ * credential this route can be given. It is single-use and expires in 30 s.
+ */
+export function displaySocketUrl(baseUrl: string, ticket: string, path = '/api/display/ws'): string {
+  const origin = baseUrl
+    .replace(/\/+$/, '')
+    .replace(/^https:\/\//, 'wss://')
+    .replace(/^http:\/\//, 'ws://')
+  return `${origin}${path}?display_ticket=${encodeURIComponent(ticket)}`
+}
+
+/** A viewer id is only worth reusing while the same screen is up. */
+export function keepViewerId(status: DisplayStatus | null, viewerId: string | null): string | undefined {
+  return displayPaneState(status).kind === 'running' && viewerId ? viewerId : undefined
+}
+
 /** What the pane should show, in priority order. */
 export type DisplayPaneState =
   | { kind: 'unsupported' }
