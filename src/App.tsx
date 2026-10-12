@@ -17,7 +17,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { flushSync } from 'react-dom'
 import { buildAttachmentPrompt, attachmentSummary } from './attachment-routing'
 import { buildBotRows, resolveCanonicalSessionId } from './live-model'
-import { groupMembersFor, groupNamesOf, groupsFromProfiles, groupRoomId } from './groups'
+import { groupKey, groupMembersFor, groupNamesOf, groupsFromProfiles, groupRoomId } from './groups'
 import { rememberRoomId } from './group-rooms'
 import { settleAssistantResponse, type SettledAssistantResponse as SettledAssistantState } from './settled-assistant'
 import { isActiveChatTurn } from './chat-turn'
@@ -587,6 +587,11 @@ export default function App() {
       }
       await refresh()
       setNewGroupOpen(false)
+      // Drop straight into the room. Creating a group is almost always followed by
+      // wanting to talk to its members, so open it exactly as tapping its row would,
+      // rather than leaving the user on the roster to find it themselves.
+      setSelected(null)
+      setOpenGroupName(name)
       if (roomWarning) setError(`Group “${name}” was saved, but the gateway could not open its room: ${roomWarning}`)
     } catch (reason) {
       // Never fall back to a generic string: a non-Error rejection previously hid the
@@ -599,7 +604,9 @@ export default function App() {
 
   // A group chat is a conversation like any other: it opens in the same slot, and
   // inside the wide shell it renders in the middle pane rather than replacing it.
-  const openGroup = openGroupName ? groups.find(group => group.name === openGroupName) : undefined
+  // Case-insensitive: the name written at creation and the spelling the roster settled
+  // on can differ only in case, and an exact match would then open nothing at all.
+  const openGroup = openGroupName ? groups.find(group => groupKey(group.name) === groupKey(openGroupName)) : undefined
   const groupView = openGroup ? <GroupChat group={openGroup} profiles={profiles} wide={wide} back={() => setOpenGroupName(null)}/> : null
 
   const screen = newGroupOpen ? newGroupView : createOpen ? wizardView : settings ? settingsView : profileView ?? groupView ?? chatView ?? (tab === 'tasks' ? tasksView : homeView)
