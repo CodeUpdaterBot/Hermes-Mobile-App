@@ -226,6 +226,12 @@ export async function createSession(
     'session.create',
     {
       ...buildCanonicalSessionParams(profile),
+      // A NEW CHAT is a real conversation, NOT the Bot's canonical Chat. The canonical
+      // params set hidden: true because a Bot Chat is represented by the Bot's own row
+      // rather than by a session row - but for a fresh chat that made it invisible
+      // everywhere: it never appeared in Sessions and never reached the Desktop, so
+      // leaving it looked like the conversation had never existed. It stays visible.
+      hidden: false,
       // SEED the session. session.create's own contract: "a DB row appears on the first
       // prompt unless seeded" — and the app reads a transcript from the STORED row
       // (hermes_session_messages -> GET /api/sessions/{id}/messages). Unseeded, a brand-new
