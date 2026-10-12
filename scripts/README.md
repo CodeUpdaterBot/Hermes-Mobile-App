@@ -38,6 +38,7 @@ The installer:
 - supports explicit `-HermesExecutable`, `-HermesHome`, and `-TailscaleIP`
   overrides when discovery cannot find a nonstandard installation;
 - starts one `hermes serve` listener on `0.0.0.0`, protected by a Windows Firewall rule restricted to `100.64.0.0/10`;
+- that listener is the whole phone-facing stack: a non-loopback bind makes it require authentication, and being an ordinary Hermes runtime it also carries the chats that are open on the Hermes Desktop, through the session-attach relay;
 - writes a small per-user runner under the detected Hermes home;
 - creates a per-user, login-start Scheduled Task with bounded restart attempts;
 - verifies `http://<tailscale-ip>:9119/api/status`, requires `auth_required: true`, and fails status/install if the listener is duplicated, foreign, or not owned by `hermes serve`.
@@ -135,6 +136,25 @@ If the host uses nonstandard locations, pass them directly:
 ```
 
 This installer requires Linux systemd, Tailscale, `curl`, `ss`, and `openssl`. It fails closed when a per-user systemd manager, authenticated gateway, private Tailscale bind, or listener ownership cannot be verified.
+
+## Development stack (this clone)
+
+These scripts are for developing and testing the client, not for host installs. The installers above
+need none of them.
+
+- `start-hermes-mobile-stack.ps1` — idempotent start/stop for the dev companion stack: an
+  authenticated gateway on `127.0.0.1:9120` plus `hermes-session-forwarder.py` on `0.0.0.0:9119`, both
+  launched detached so a Hermes Desktop restart cannot take them down. Use `-Stop` to shut it down.
+  Never hand-start the two pieces.
+- `hermes-session-forwarder.py` — the phone's dev endpoint. It forwards each connection to the
+  advertised session runtime, but **never to one that cannot authenticate a remote client**: it probes
+  `/api/status` and skips any candidate reporting `auth_required: false` (the Desktop's own backend is
+  deliberately exempt from the ticket gate), falling through to the authenticated gateway, which
+  reaches that runtime's sessions through the session-attach relay. `--no-require-auth` restores the
+  old behaviour.
+- `verify-session-attach-relay.py` + `attach-owner-standin.py` — end-to-end proof of the relay against
+  a stand-in runtime that genuinely holds a session lease in a throwaway `HERMES_HOME` (no real chat
+  is touched). Run recipe and assertions are in the script docstring.
 
 ## Pair the phone
 
