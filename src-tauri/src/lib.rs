@@ -35,6 +35,31 @@ fn is_loopback(origin: &str) -> bool {
     origin.contains("127.0.0.1") || origin.contains("localhost") || origin.contains("[::1]")
 }
 
+/// Whether the origin's host sits in Tailscale's CGNAT range (100.64.0.0/10).
+fn is_tailnet(origin: &str) -> bool {
+    let host = origin
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(origin)
+        .split(['/', ':'])
+        .next()
+        .unwrap_or("");
+    let octets: Vec<u8> = host.split('.').filter_map(|part| part.parse().ok()).collect();
+    octets.len() == 4 && octets[0] == 100 && (64..128).contains(&octets[1])
+}
+
+/// A request that never reached the host presents identically whether this device is off the
+/// tailnet or the host's gateway is down, and "error sending request for url" tells the user
+/// neither. Name both, most common first: a phone off Tailscale cannot reach a 100.x address
+/// at all, and that is a far more frequent cause than a stopped gateway.
+fn unreachable_hint(origin: &str) -> &'static str {
+    if is_tailnet(origin) {
+        " Nothing answered at that address. Check, in order: 1) Tailscale is on and Connected on THIS device - most often this is the cause, since a device off the tailnet cannot reach a 100.x address at all; 2) Hermes Desktop is running on the host; 3) the host's gateway script is running."
+    } else {
+        " Nothing answered at that address. Check that Hermes Desktop and its gateway script are running on the host, and that this address is reachable from this device."
+    }
+}
+
 fn authenticated_get(app: &tauri::AppHandle, origin: &str, path: &str) -> Result<String, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(20))
@@ -45,7 +70,7 @@ fn authenticated_get(app: &tauri::AppHandle, origin: &str, path: &str) -> Result
         request
             .header("X-Hermes-Session-Token", session_token(&client, origin)?)
             .send()
-            .map_err(|error| format!("Hermes request failed: {error}"))?
+            .map_err(|error| format!("Hermes request failed: {error}{}", unreachable_hint(origin)))?
             .error_for_status()
             .map_err(|error| format!("Hermes rejected the request: {error}"))?
             .text()
@@ -54,7 +79,7 @@ fn authenticated_get(app: &tauri::AppHandle, origin: &str, path: &str) -> Result
         let mut response = request
             .bearer_auth(remote_auth::load(app, origin)?.access_token)
             .send()
-            .map_err(|error| format!("Hermes request failed: {error}"))?;
+            .map_err(|error| format!("Hermes request failed: {error}{}", unreachable_hint(origin)))?;
         if response.status().as_u16() == 401 {
             let refreshed = remote_auth::refresh(app, origin)?;
             response = client
@@ -105,7 +130,12 @@ fn hermes_connection_probe(base_url: String) -> Result<String, String> {
         .send()
         .map_err(|error| {
             format!(
-                "Could not reach this Hermes gateway ({error}). The address is reachable only when Hermes is bound to the Tailscale/LAN interface—not just 127.0.0.1—and its port is allowed by the host firewall."
+                "Could not reach this Hermes gateway ({error}).{} The address is reachable only when Hermes is bound to the Tailscale/LAN interface-not just 127.0.0.1-and its port is allowed by the host firewall.",
+                if is_tailnet(&origin) {
+                    " Check Tailscale is on and Connected on THIS device first: a device off the tailnet cannot reach a 100.x address at all."
+                } else {
+                    ""
+                }
             )
         })?;
     let status = response.status();
@@ -535,4 +565,35 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hermes Mobile");
+}
+
+#[cfg(test)]
+mod reachability_tests {
+    use super::*;
+
+    #[test]
+    fn recognises_tailnet_addresses() {
+        assert!(is_tailnet("http://100.118.101.75:9119"));
+        assert!(is_tailnet("100.64.0.1"));
+        assert!(is_tailnet("http://100.127.255.254:443/api/status"));
+    }
+
+    #[test]
+    fn does_not_claim_other_addresses_are_tailnet() {
+        // Loopback (the Desktop's own runtime), a public hostname and a LAN address must all
+        // decline, or the hint becomes noise on every failure. The two 100.x boundaries are
+        // pinned because an off-by-one there would silently disable the hint for real tailnets.
+        assert!(!is_tailnet("http://127.0.0.1:9119"));
+        assert!(!is_tailnet("http://localhost:9119"));
+        assert!(!is_tailnet("https://hermes.example.com"));
+        assert!(!is_tailnet("http://192.168.1.10:9119"));
+        assert!(!is_tailnet("http://100.63.255.255"));
+        assert!(!is_tailnet("http://100.128.0.1"));
+    }
+
+    #[test]
+    fn the_hint_names_tailscale_only_for_a_tailnet_host() {
+        assert!(unreachable_hint("http://100.118.101.75:9119").contains("Tailscale"));
+        assert!(!unreachable_hint("http://192.168.1.10:9119").contains("Tailscale"));
+    }
 }
