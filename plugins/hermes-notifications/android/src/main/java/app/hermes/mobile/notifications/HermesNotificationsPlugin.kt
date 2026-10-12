@@ -17,6 +17,8 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
@@ -32,8 +34,22 @@ import app.tauri.plugin.Plugin
  * a Bot that calls twelve tools must not produce twelve notifications. Ongoing
  * notifications cannot be swiped away mid-run, and completion converts the same
  * notification into an ordinary clearable one instead of posting a second entry.
+ *
+ * The Android runtime permission must be declared as an ALIAS on the plugin, not merely named
+ * in the manifest: `Plugin.requestPermissionForAliases` resolves the strings it passes to the
+ * framework from `@TauriPlugin.permissions`, and with a bare annotation it resolves nothing —
+ * `permissionActivityResult` is never called, so Android never shows the prompt and the caller
+ * waits for a dialog that was never asked for. The alias below is the one `ensurePermission`
+ * requests; keep the two in step.
  */
-@TauriPlugin
+@TauriPlugin(
+  permissions = [
+    Permission(
+      alias = "postNotifications",
+      strings = ["android.permission.POST_NOTIFICATIONS"]
+    )
+  ]
+)
 class HermesNotificationsPlugin(private val activity: android.app.Activity) : Plugin(activity) {
 
   companion object {
@@ -45,6 +61,9 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
 
     /** Android 13 introduced a runtime notification permission. */
     private const val POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS"
+
+    /** The alias declared on `@TauriPlugin` above; the framework requests by alias, not by string. */
+    private const val POST_NOTIFICATIONS_ALIAS = "postNotifications"
   }
 
   @InvokeArg
@@ -208,10 +227,19 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
       invoke.resolve(permissionPayload(granted))
       return
     }
-    requestPermissionForAlias(POST_NOTIFICATIONS, invoke, "notificationPermissionResult")
+    requestPermissionForAlias(POST_NOTIFICATIONS_ALIAS, invoke, "notificationPermissionResult")
   }
 
-  @Command
+  /**
+   * Resolves the held `ensurePermission` invoke once the user has answered Android's dialog.
+   *
+   * This MUST be a [PermissionCallback] and not a Command: the framework finds the callback by
+   * method name in the permission-callback registry, which `PluginHandle.indexMethods` populates
+   * only from methods carrying this annotation. As a `@Command` it was never registered, so the
+   * invoke was neither resolved nor rejected and the Settings screen spun on "Asking Android…"
+   * forever, with no error and nothing to retry.
+   */
+  @PermissionCallback
   fun notificationPermissionResult(invoke: Invoke) {
     val granted = ContextCompat.checkSelfPermission(activity, POST_NOTIFICATIONS) ==
       PackageManager.PERMISSION_GRANTED

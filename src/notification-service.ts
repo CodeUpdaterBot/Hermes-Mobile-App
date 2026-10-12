@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 
+import { withDeadline } from './deadline'
 import { splitDataUrl } from './avatar-raster'
 import {
   planNotificationUpdates,
@@ -62,6 +63,14 @@ export function permissionState(): Promise<PermissionState | null> {
 
 export function ensurePermission(): Promise<PermissionState | null> {
   return call<PermissionState>('ensurePermission')
+}
+
+/** How long the app waits for Android's answer before it stops believing one is coming. */
+export const PERMISSION_WAIT_MS = 30_000
+
+/** `ensurePermission` under a deadline; null means "no answer", not "denied". */
+export function ensurePermissionWithDeadline(ms = PERMISSION_WAIT_MS): Promise<PermissionState | null> {
+  return withDeadline(ensurePermission(), ms)
 }
 
 export function clearAllNotifications(): Promise<unknown> {
