@@ -121,9 +121,27 @@ foreach ($port in @($PhonePort, $GatewayPort)) {
 try {
     $status = Invoke-RestMethod -Uri "http://127.0.0.1:$PhonePort/api/status" -TimeoutSec 8 `
         -Headers @{ Host = ($PublicUrl -replace '^https?://', '') }
+    # The payload differs by which runtime answered: a profile runtime reports hermes_home,
+    # the authenticated gateway does not. Reading absent properties throws in PowerShell, so
+    # every field goes through PSObject.Properties instead.
+    function Get-Field($obj, $name, $fallback) {
+        if ($obj.PSObject.Properties[$name]) { $obj.PSObject.Properties[$name].Value } else { $fallback }
+    }
+    $serves = Get-Field $status 'hermes_home' ''
+    $auth   = Get-Field $status 'auth_required' '?'
     Write-Host ''
-    Write-Host "  phone endpoint serves: $($status.hermes_home)"
-    Write-Host "  auth_required there:   $($status.auth_required)"
+    if ($serves) {
+        Write-Host "  phone endpoint serves: $serves  (a Bot runtime)"
+    } else {
+        Write-Host '  phone endpoint serves: the authenticated gateway'
+    }
+    Write-Host "  auth_required there:   $auth"
+    if ($auth -eq $false) {
+        Write-Host '  NOTE: a host that does not require authentication cannot be paired with' -ForegroundColor Yellow
+        Write-Host '        from the phone, and a token from the other runtime will not be accepted.' -ForegroundColor Yellow
+        Write-Host '        Fall back to the authenticated gateway, or restart Hermes Desktop so it' -ForegroundColor Yellow
+        Write-Host '        inherits dashboard.public_url, then pair again.' -ForegroundColor Yellow
+    }
 } catch {
     Write-Host "  could not read /api/status through $PhonePort : $($_.Exception.Message)" -ForegroundColor Yellow
 }
