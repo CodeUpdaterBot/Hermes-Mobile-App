@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, MessageSquare, Monitor, Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, MessageSquare, Monitor, Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
 
 import { ChatView } from './components/ChatView'
 import { BotAvatar } from './components/BotAvatar'
@@ -734,7 +734,7 @@ export default function App() {
 
   const newChatView = <main className="app panel">
     <header className="panel-head new-chat-head">
-      <button className="back-button" onClick={() => { setNewChatOpen(false); setNewChatError('') }} aria-label="Back">‹</button>
+      <button className="back-button" onClick={() => { setNewChatOpen(false); setNewChatError('') }} aria-label="Back"><ArrowLeft size={19}/></button>
       <div><h2>New Chat</h2><p>Start a fresh conversation with a Bot you already have</p></div>
     </header>
     {newChatError && <Notice message={newChatError} retry={() => setNewChatError('')}/>}

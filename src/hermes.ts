@@ -227,7 +227,9 @@ export async function createSession(
   )
   const id = created.session_id
   if (!id) throw new Error('Hermes did not return the new chat’s id.')
-  await client.call('session.title', { session_id: id, title: 'Bot Chat' })
+  // No follow-up title call: buildCanonicalSessionParams already titles it 'Bot Chat', and
+  // re-titling is REJECTED because the profile's existing Bot Chat owns that title
+  // ("Title 'Bot Chat' is already in use by session ...").
   // The app addresses every other conversation by its STORED id (that is what the roster
   // carries and what persistence reads), so hand that back for the caller to open.
   return { id, storedId: created.stored_session_id || id }
