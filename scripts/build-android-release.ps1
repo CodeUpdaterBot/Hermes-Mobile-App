@@ -1,5 +1,11 @@
 [CmdletBinding()]
 param(
+    # The upload keystore and alias are FIXED for this app, so they are parameters with real
+    # defaults rather than prompts: a release should ask for the two secrets and nothing else.
+    # Pass different values, or -Ask, when deliberately signing with something else.
+    [string]$Keystore = 'E:\Hermes\hermes-mobile-upload.jks',
+    [string]$Alias = 'hermes-mobile',
+    [switch]$Ask,
     [switch]$BuildAab
 )
 
@@ -25,10 +31,10 @@ function Convert-SecureStringToPlainText([Security.SecureString]$SecureValue) {
     }
 }
 
-$defaultKeystore = 'E:\Hermes\hermes-mobile-upload.jks'
-$keystore = Read-Default 'Hermes Mobile upload keystore' $defaultKeystore
+# Straight to the passwords: nothing to type for the keystore unless -Ask was passed.
+$keystore = if ($Ask) { Read-Default 'Hermes Mobile upload keystore' $Keystore } else { $Keystore }
 if (-not (Test-Path -LiteralPath $keystore -PathType Leaf)) {
-    throw "Keystore not found: $keystore"
+    throw "Keystore not found: $keystore  (pass -Keystore <path> to sign with another one)"
 }
 $keystore = (Resolve-Path -LiteralPath $keystore).Path
 
@@ -48,7 +54,7 @@ if (-not $keytool) {
 Write-Host ''
 Write-Host 'The next keytool prompt validates the keystore and alias.' -ForegroundColor Cyan
 Write-Host 'Enter the keystore password there. It will not be displayed.' -ForegroundColor Cyan
-$alias = Read-Default 'Key alias' 'hermes-mobile'
+$alias = if ($Ask) { Read-Default 'Key alias' $Alias } else { $Alias }
 & $keytool -list -keystore $keystore -alias $alias
 if ($LASTEXITCODE -ne 0) {
     throw "The alias '$alias' could not be validated in the selected keystore. No build was started."
