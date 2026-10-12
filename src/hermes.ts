@@ -210,14 +210,27 @@ export async function loadGroupCapabilities(profile: string, baseUrl = activeHer
  * Mint a fresh live session for a profile — "new chat with this Bot".
  *
  * A Bot's Chat is its canonical session, and a long-lived one eventually fills its
- * history; this is how a user starts clean without creating a second Bot. Hermes mints
- * the id (the stored row appears on the first prompt), so the caller opens what comes
- * back rather than guessing an id.
+ * history; this is how a user starts clean without creating a second Bot. It reuses the
+ * same params builder the New Bot flow uses, so the new chat is born exactly like a
+ * canonical Bot Chat rather than being a shape only this path knows about.
+ *
+ * The title stays 'Bot Chat' deliberately: the chat header treats any OTHER title as the
+ * Bot's own name, so titling this "New chat" made the header show that instead of the Bot.
  */
-export async function createSession(profile: string, baseUrl = activeHermes): Promise<string> {
-  const result = await rpcCall<{ session_id?: string }>('session.create', { profile }, baseUrl)
-  if (!result?.session_id) throw new Error('Hermes did not return the new chat’s id.')
-  return result.session_id
+export async function createSession(
+  profile: string,
+  baseUrl = activeHermes,
+): Promise<{ id: string; storedId: string }> {
+  const client = gateway(baseUrl)
+  const created = await client.call<{ session_id?: string; stored_session_id?: string }>(
+    'session.create', buildCanonicalSessionParams(profile),
+  )
+  const id = created.session_id
+  if (!id) throw new Error('Hermes did not return the new chat’s id.')
+  await client.call('session.title', { session_id: id, title: 'Bot Chat' })
+  // The app addresses every other conversation by its STORED id (that is what the roster
+  // carries and what persistence reads), so hand that back for the caller to open.
+  return { id, storedId: created.stored_session_id || id }
 }
 
 export async function listGroups(profile: string, baseUrl = activeHermes): Promise<GroupRoom[]> {

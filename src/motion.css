@@ -213,6 +213,9 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 .new-bot-menu button{display:flex;align-items:center;gap:9px;width:100%;padding:10px 12px;border:0;border-radius:8px;background:transparent;color:var(--text);font-size:14px;font-weight:500;text-align:left;cursor:pointer}
 .new-bot-menu button:hover{background:var(--surface)}
 [data-theme='light'] .new-bot-menu{box-shadow:0 18px 44px rgba(15,23,42,.18)}
+/* The back control sits on the text block's centre line, not its top edge: the two-line
+   title/description pair makes a top-aligned control read as too low. */
+.new-chat-head{align-items:center}
 
 .wide-main{display:flex;min-width:0;flex-direction:column;background:var(--bg)}
 /* Inside a column any screen must fill it rather than re-centring itself. The flex

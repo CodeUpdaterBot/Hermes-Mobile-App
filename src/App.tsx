@@ -721,9 +721,11 @@ export default function App() {
   const startNewChat = useCallback(async (profileName: string) => {
     setNewChatBusy(true); setNewChatError('')
     try {
-      const id = await createSession(profileName)
+      const { storedId } = await createSession(profileName)
       setNewChatOpen(false); setNewBotMenuOpen(false)
-      await openSession({ id, title: 'New chat', preview: '', profile: profileName, last_active: Date.now() / 1000 })
+      // Addressed by its stored id, like every other conversation the roster carries, and
+      // titled 'Bot Chat' so the header keeps showing the Bot's own name.
+      await openSession({ id: storedId, title: 'Bot Chat', preview: '', profile: profileName, last_active: Date.now() / 1000 })
       await refresh()
     } catch (reason) {
       setNewChatError(errorMessage(reason, 'Could not start a new chat.'))
@@ -731,7 +733,7 @@ export default function App() {
   }, [openSession, refresh])
 
   const newChatView = <main className="app panel">
-    <header className="panel-head">
+    <header className="panel-head new-chat-head">
       <button className="back-button" onClick={() => { setNewChatOpen(false); setNewChatError('') }} aria-label="Back">‹</button>
       <div><h2>New Chat</h2><p>Start a fresh conversation with a Bot you already have</p></div>
     </header>
