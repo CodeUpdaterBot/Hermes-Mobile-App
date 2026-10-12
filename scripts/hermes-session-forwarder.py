@@ -13,9 +13,18 @@ reachable endpoint: it listens on the Tailscale-facing port the phone already us
 forwards each connection to whichever runtime currently owns the sessions, falling back to
 the local gateway when the Desktop is closed and nothing is advertised.
 
-The phone therefore keeps ONE endpoint and lands on the Desktop's own runtime whenever the
-Desktop is open — so tapping a Bot on the phone resumes the chat that is open on the
-desktop, instead of being refused.
+The phone therefore keeps ONE endpoint and lands on the runtime that owns the sessions whenever
+that runtime can authenticate a remote client — so tapping a Bot on the phone resumes the chat
+that is open on the desktop, instead of being refused.
+
+Never route the phone to a runtime that cannot authenticate it. A Hermes runtime reports
+``auth_required`` on ``/api/status``; a Desktop-owned loopback backend is deliberately exempt from
+the dashboard ticket gate (``web_server._desktop_loopback_auth_exempt``, #96490) and therefore
+always reports ``false``. Pointing a remote client at it would be refused by the client itself
+(the mobile app will not pair with an unauthenticated remote gateway), so those advertisements are
+skipped and the connection falls through to the authenticated gateway — which reaches that
+runtime's sessions through the ``/api/session-attach`` relay instead. ``--no-require-auth``
+restores the old "prefer whatever advertises" behaviour.
 
 Nothing here changes Hermes' exclusivity rule: exactly one process drives a session. The
 forwarder only decides which process the phone's socket reaches.
@@ -105,12 +114,62 @@ def connectable(host: str, port: int, timeout: float = CONNECT_TIMEOUT) -> socke
     return sock
 
 
+def _dechunk(body: bytes) -> bytes:
+    """Decode an HTTP/1.1 chunked body (best effort; a malformed body yields what was read)."""
+    out = bytearray()
+    while body:
+        line, _, rest = body.partition(b"\r\n")
+        try:
+            size = int(line.split(b";", 1)[0].strip() or b"0", 16)
+        except ValueError:
+            return bytes(out)
+        if size == 0:
+            break
+        out.extend(rest[:size])
+        body = rest[size + 2:]
+    return bytes(out)
+
+
+def probe_auth_required(host: str, port: int, timeout: float = PROBE_TIMEOUT) -> bool | None:
+    """``/api/status``'s ``auth_required`` for the runtime at *host:port*; ``None`` when unreadable.
+
+    Deliberately a raw socket, not urllib: this is a byte-level forwarder and must not inherit
+    proxy environment or follow redirects off the runtime it is about to send the phone to.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            sock.settimeout(timeout)
+            request = ("GET /api/status HTTP/1.1\r\nHost: %s:%s\r\nAccept: application/json\r\n"
+                       "Connection: close\r\n\r\n" % (host, port))
+            sock.sendall(request.encode("ascii"))
+            raw = bytearray()
+            while len(raw) < 65536:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                raw.extend(chunk)
+    except OSError:
+        return None
+    head, _, body = bytes(raw).partition(b"\r\n\r\n")
+    if b" 200 " not in head.split(b"\r\n", 1)[0]:
+        return None
+    if b"transfer-encoding:" in head.lower() and b"chunked" in head.lower():
+        body = _dechunk(body)
+    try:
+        status = json.loads(body.decode("utf-8", "replace"))
+    except ValueError:
+        return None
+    return bool(status.get("auth_required")) if isinstance(status, dict) else None
+
+
 class Resolver:
     """Caches which target is currently serving, refreshing at most once per second."""
 
-    def __init__(self, home: str, fallback: tuple[str, int]):
+    def __init__(self, home: str, fallback: tuple[str, int], *, require_auth: bool = True, log=None):
         self.home = home
         self.fallback = fallback
+        self.require_auth = require_auth
+        self._log = log or (lambda _message: None)
         self._lock = threading.Lock()
         self._target: tuple[str, int] | None = None
         self._checked_at = 0.0
@@ -123,10 +182,19 @@ class Resolver:
             self._checked_at = now
             for candidate in advertised_targets(self.home):
                 probe = connectable(*candidate, timeout=0.4)
-                if probe is not None:
-                    probe.close()
-                    self._target = candidate
-                    return self._target
+                if probe is None:
+                    continue
+                probe.close()
+                if self.require_auth and probe_auth_required(*candidate) is not True:
+                    # A remote client can only pair with a runtime that authenticates it: a backend
+                    # reporting auth_required=false is loopback-only or a Desktop-owned runtime
+                    # deliberately exempt from the ticket gate (#96490). Skipping it lands the
+                    # phone on the authenticated gateway, which reaches that runtime's sessions
+                    # through the attach relay.
+                    self._log("skipping %s:%s — it does not authenticate a remote client" % candidate)
+                    continue
+                self._target = candidate
+                return self._target
             self._target = self.fallback
             return self._target
 
@@ -254,6 +322,9 @@ def main() -> int:
     parser.add_argument("--listen-port", type=int, default=9119)
     parser.add_argument("--fallback-host", default="127.0.0.1")
     parser.add_argument("--fallback-port", type=int, default=9120)
+    parser.add_argument("--no-require-auth", dest="require_auth", action="store_false",
+                        help="also forward to an advertised runtime that cannot authenticate a "
+                             "remote client (the old behaviour; the phone will refuse to pair)")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
@@ -261,7 +332,8 @@ def main() -> int:
         if not args.quiet:
             print("%s %s" % (time.strftime("%H:%M:%S"), message), flush=True)
 
-    resolver = Resolver(args.home, (args.fallback_host, args.fallback_port))
+    resolver = Resolver(args.home, (args.fallback_host, args.fallback_port),
+                        require_auth=args.require_auth, log=log)
     with Server((args.listen_host, args.listen_port), Handler) as server:
         server.resolver = resolver  # type: ignore[attr-defined]
         server.log = log  # type: ignore[attr-defined]
