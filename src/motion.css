@@ -205,6 +205,17 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 .wide-context-reveal{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:40;width:20px;height:64px;border:1px solid var(--border);border-right:0;border-radius:10px 0 0 10px;background:var(--panel);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .wide-context-reveal:hover{color:var(--text);border-color:var(--accent)}
 .wide-rail-actions{display:flex;align-items:center;gap:6px}
+/* The New Bot control is a menu, not a button: making a Bot and starting a fresh chat
+   with one you already have are the two things "new" means here. Stacked above the
+   control, matching the panel/border/shadow language used by the other popovers. */
+.new-bot-wrap{position:relative;display:inline-flex}
+.new-bot-menu{position:absolute;bottom:calc(100% + 8px);right:0;min-width:172px;display:flex;flex-direction:column;gap:2px;padding:6px;border:1px solid var(--border);border-radius:12px;background:var(--panel);box-shadow:0 18px 44px rgba(0,0,0,.42);z-index:60}
+.new-bot-menu button{display:flex;align-items:center;gap:9px;width:100%;padding:10px 12px;border:0;border-radius:8px;background:transparent;color:var(--text);font-size:14px;font-weight:500;text-align:left;cursor:pointer}
+.new-bot-menu button:hover{background:var(--surface)}
+[data-theme='light'] .new-bot-menu{box-shadow:0 18px 44px rgba(15,23,42,.18)}
+/* The back control sits on the text block's centre line, not its top edge: the two-line
+   title/description pair makes a top-aligned control read as too low. */
+.new-chat-head{align-items:center}
 
 .wide-main{display:flex;min-width:0;flex-direction:column;background:var(--bg)}
 /* Inside a column any screen must fill it rather than re-centring itself. The flex
@@ -274,7 +285,10 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 .app.chat-shell .group-composer textarea::-webkit-scrollbar{display:none;width:0;height:0}
 
 .new-group-body{padding:0 18px calc(26px + env(safe-area-inset-bottom))}
-.new-group-intro{margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5}
+/* 16px of headroom under the header rule: at 0 the intro sat flush against the divider,
+   which reads as cramped rather than deliberate. Matches the head-to-body gap used by the
+   other management surfaces (tasks-head: 17px). */
+.new-group-intro{margin:16px 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5}
 .new-group-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .new-group-chip{display:flex;align-items:center;gap:6px;padding:5px 7px 5px 5px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);font-size:12px}
 .new-group-chip button{border:0;background:transparent;color:var(--quiet);display:flex;padding:0;cursor:pointer}

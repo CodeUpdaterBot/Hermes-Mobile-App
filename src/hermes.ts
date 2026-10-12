@@ -206,6 +206,54 @@ export async function loadGroupCapabilities(profile: string, baseUrl = activeHer
   return rpcCall<GroupCapabilities>('groups.capabilities', { profile }, baseUrl)
 }
 
+/**
+ * Mint a fresh live session for a profile — "new chat with this Bot".
+ *
+ * A Bot's Chat is its canonical session, and a long-lived one eventually fills its
+ * history; this is how a user starts clean without creating a second Bot. It reuses the
+ * same params builder the New Bot flow uses, so the new chat is born exactly like a
+ * canonical Bot Chat rather than being a shape only this path knows about.
+ *
+ * The title stays 'Bot Chat' deliberately: the chat header treats any OTHER title as the
+ * Bot's own name, so titling this "New chat" made the header show that instead of the Bot.
+ */
+export async function createSession(
+  profile: string,
+  baseUrl = activeHermes,
+): Promise<{ id: string; storedId: string }> {
+  const client = gateway(baseUrl)
+  const created = await client.call<{ session_id?: string; stored_session_id?: string }>(
+    'session.create',
+    {
+      ...buildCanonicalSessionParams(profile),
+      // A NEW CHAT is a real conversation, NOT the Bot's canonical Chat. The canonical
+      // params set hidden: true because a Bot Chat is represented by the Bot's own row
+      // rather than by a session row - but for a fresh chat that made it invisible
+      // everywhere: it never appeared in Sessions and never reached the Desktop, so
+      // leaving it looked like the conversation had never existed. It stays visible.
+      hidden: false,
+      // SEED the session. session.create's own contract: "a DB row appears on the first
+      // prompt unless seeded" — and the app reads a transcript from the STORED row
+      // (hermes_session_messages -> GET /api/sessions/{id}/messages). Unseeded, a brand-new
+      // chat has nothing to read and the conversation fails to load.
+      //
+      // The content must be NON-EMPTY: session_history._coerce_seed_history drops any row
+      // whose content does not survive .strip(), so an empty seed silently does nothing.
+      // display_kind "hidden" is the one kind a seeding client may author and the renderer
+      // does not paint it, so the conversation still opens visually empty.
+      messages: [{ role: 'user', content: 'New chat', display_kind: 'hidden' }],
+    },
+  )
+  const id = created.session_id
+  if (!id) throw new Error('Hermes did not return the new chat’s id.')
+  // No follow-up title call: buildCanonicalSessionParams already titles it 'Bot Chat', and
+  // re-titling is REJECTED because the profile's existing Bot Chat owns that title
+  // ("Title 'Bot Chat' is already in use by session ...").
+  // The app addresses every other conversation by its STORED id (that is what the roster
+  // carries and what persistence reads), so hand that back for the caller to open.
+  return { id, storedId: created.stored_session_id || id }
+}
+
 export async function listGroups(profile: string, baseUrl = activeHermes): Promise<GroupRoom[]> {
   const result = await rpcCall<{ rooms?: GroupRoom[] }>('groups.list', { profile }, baseUrl)
   return result.rooms || []
