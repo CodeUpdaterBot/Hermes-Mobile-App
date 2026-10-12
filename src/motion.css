@@ -156,13 +156,13 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 /* Tablet landscape and unfolded foldables get the three-column workspace: Bots
    on the left, the conversation in the middle, the Bot's own computer on the
    right. Narrow phones keep the existing single-surface navigation untouched. */
-.wide-shell{display:grid;grid-template-columns:minmax(254px,314px) 7px minmax(0,1fr) 7px minmax(288px,368px);height:100dvh;background:var(--bg);color:var(--text)}
-.wide-shell.rail-collapsed{grid-template-columns:0 7px minmax(0,1fr) 7px minmax(288px,368px)}
+.wide-shell{display:grid;grid-template-columns:minmax(248px,296px) 7px minmax(340px,1fr) 7px minmax(248px,296px);height:100dvh;background:var(--bg);color:var(--text)}
+.wide-shell.rail-collapsed{grid-template-columns:0 7px minmax(340px,1fr) 7px minmax(248px,296px)}
 .wide-shell.rail-collapsed .wide-rail{opacity:0;pointer-events:none;overflow:hidden}
 /* The right divider keeps its width while its column is collapsed, so the same
    click can bring the column back rather than stranding the user. */
-.wide-shell.context-collapsed{grid-template-columns:minmax(254px,314px) 7px minmax(0,1fr) 7px 0}
-.wide-shell.rail-collapsed.context-collapsed{grid-template-columns:0 7px minmax(0,1fr) 7px 0}
+.wide-shell.context-collapsed{grid-template-columns:minmax(248px,296px) 7px minmax(340px,1fr) 7px 0}
+.wide-shell.rail-collapsed.context-collapsed{grid-template-columns:0 7px minmax(340px,1fr) 7px 0}
 .wide-shell.context-collapsed .wide-context{opacity:0;pointer-events:none;overflow:hidden}
 
 .wide-rail{display:flex;min-width:0;flex-direction:column;background:var(--bg);overflow:hidden;transition:opacity var(--motion-quick) var(--ease-out)}
@@ -171,7 +171,7 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
    left edge and triple on the right. In the wide shell the dividers are the only
    vertical separator, matching the single rule under the chat header. */
 .wide-main>.app,.wide-context>*{border-left:0;border-right:0}
-.wide-rail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 12px 10px 18px}
+.wide-rail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:26px 12px 12px 18px}
 .wide-rail-head b{font-size:22px;font-weight:600}
 .wide-rail-search{display:flex;align-items:center;gap:8px;margin:2px 12px 8px;padding:0 10px;min-height:38px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--quiet)}
 .wide-rail-search input{flex:1 1 auto;min-width:0;border:0;background:transparent;color:var(--text);font-size:13px;outline:none}
@@ -185,14 +185,26 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 /* Which Bot's conversation is open. Without this the selected row looked identical to
    every other one, even though the class was already being applied. */
 .wide-rail .bot-row.selected{background:rgba(255,255,255,.07)}
+/* Bleed the selected row to the rail edges while keeping its content on the same
+   18px grid as every other row: the list's padding stays, the highlight negates it. */
+.wide-rail .bot-row.selected{margin-left:-18px;margin-right:-18px;padding-left:18px;padding-right:18px;border-radius:0}
 .wide-rail .bot-row.selected b{color:var(--text)}
 [data-theme='light'] .wide-rail .bot-row.selected{background:rgba(0,0,0,.055)}
 
 /* The vertical divider is a real grid column, so clicking it collapses the column
    it belongs to — the same gesture on either side of the middle pane. */
-.wide-divider{width:7px;height:100%;border:0;padding:0;background:transparent;cursor:pointer;position:relative}
+.wide-divider{width:7px;height:100%;border:0;padding:0;background:transparent;cursor:col-resize;position:relative;touch-action:none}
 .wide-divider::after{content:'';position:absolute;inset:0 3px;background:var(--border);transition:background var(--motion-fast) var(--ease-out)}
 .wide-divider:hover::after{background:var(--accent)}
+/* Widen the grab area well past the visible 7px rule: a hairline is unhittable on touch,
+   and a drag needs somewhere to start. */
+.wide-divider::before{content:'';position:absolute;top:0;bottom:0;left:-9px;right:-9px}
+/* The tab shown when the right column is collapsed. The old way back was the bare divider
+   at the very screen edge - effectively invisible, which is why it read as impossible to
+   click. It now gets a visible tab, matching the Bots column's. */
+.wide-context-reveal{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:40;width:20px;height:64px;border:1px solid var(--border);border-right:0;border-radius:10px 0 0 10px;background:var(--panel);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.wide-context-reveal:hover{color:var(--text);border-color:var(--accent)}
+.wide-rail-actions{display:flex;align-items:center;gap:6px}
 
 .wide-main{display:flex;min-width:0;flex-direction:column;background:var(--bg)}
 /* Inside a column any screen must fill it rather than re-centring itself. The flex

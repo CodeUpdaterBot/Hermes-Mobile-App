@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, Monitor, Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Monitor, Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
 
 import { ChatView } from './components/ChatView'
 import { BotAvatar } from './components/BotAvatar'
@@ -429,6 +429,10 @@ export default function App() {
   const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 900px)').matches)
   const [railCollapsed, setRailCollapsed] = useState(false)
   const [contextCollapsed, setContextCollapsed] = useState(false)
+  // Dragged column widths. Null means "use the stylesheet's values", so the responsive
+  // defaults still apply until the user actually drags a divider.
+  const [railWidth, setRailWidth] = useState<number | null>(null)
+  const [contextWidth, setContextWidth] = useState<number | null>(null)
   const [newGroupOpen, setNewGroupOpen] = useState(false)
   const [openGroupName, setOpenGroupName] = useState<string | null>(null)
   const [groupBusy, setGroupBusy] = useState(false)
@@ -616,25 +620,63 @@ export default function App() {
   const activeProfile = selected ? profiles.find(profile => profile.name === selected.profile) : undefined
   const activeBotName = activeProfile?.display_name || (selected?.title && selected.title !== 'Bot Chat' ? selected.title : selected ? titleize(selected.profile) : '')
 
+  // A divider both drags and toggles. Dragging past a few pixels resizes the column to
+  // wherever the finger/pointer ends; releasing without dragging toggles it, so the old
+  // click behaviour survives and no gesture has to be discovered. The listener is bound
+  // to the divider itself once the pointer is captured, so it cannot leak past release.
+  function dragColumn(kind: 'rail' | 'context', event: { clientX: number; pointerId: number; currentTarget: HTMLButtonElement }) {
+    const startX = event.clientX
+    const startWidth = (kind === 'rail' ? railWidth : contextWidth) ?? 296
+    const handle = event.currentTarget
+    handle.setPointerCapture(event.pointerId)
+    let dragged = false
+    const onMove = (move: PointerEvent) => {
+      const delta = move.clientX - startX
+      if (!dragged && Math.abs(delta) < 4) return
+      dragged = true
+      // The right column grows leftwards, so its delta is inverted.
+      const next = kind === 'rail' ? startWidth + delta : startWidth - delta
+      const clamped = Math.max(180, Math.min(460, next))
+      if (kind === 'rail') setRailWidth(clamped); else setContextWidth(clamped)
+    }
+    const onUp = () => {
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onUp)
+      handle.removeEventListener('pointercancel', onUp)
+      if (dragged) return
+      if (kind === 'rail') setRailCollapsed(value => !value); else setContextCollapsed(value => !value)
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onUp)
+    handle.addEventListener('pointercancel', onUp)
+  }
+
   // The tri-fold workspace. Every screen renders in the middle pane, so opening a
   // Bot's settings no longer collapses the layout back to a single column.
-  return <div className={`wide-shell${railCollapsed ? ' rail-collapsed' : ''}${contextCollapsed ? ' context-collapsed' : ''}`}>
+  return <div className={`wide-shell${railCollapsed ? ' rail-collapsed' : ''}${contextCollapsed ? ' context-collapsed' : ''}`}
+    style={railWidth === null && contextWidth === null ? undefined : {
+      gridTemplateColumns: `${railCollapsed ? 0 : railWidth ?? 296}px 7px minmax(340px,1fr) 7px ${contextCollapsed ? 0 : contextWidth ?? 296}px`,
+    }}>
     {railCollapsed && <button className="wide-rail-reveal" onClick={() => setRailCollapsed(false)} aria-label="Show Bots column"><ChevronRight size={13}/></button>}
+    {contextCollapsed && <button className="wide-context-reveal" onClick={() => setContextCollapsed(false)} aria-label="Show computer column"><ChevronLeft size={13}/></button>}
 
     <aside className="wide-rail" aria-label="Bots">
       <header className="wide-rail-head">
         <b>Bots</b>
-        <button className="round-control" onClick={() => setSearching(value => !value)} aria-label="Search Bots"><Search size={16}/></button>
+        <span className="wide-rail-actions">
+          <button className="round-control" onClick={() => setSearching(value => !value)} aria-label="Search Bots"><Search size={16}/></button>
+          <button className="round-control" onClick={() => setSettings(true)} aria-label="Settings"><SettingsIcon size={16}/></button>
+        </span>
       </header>
       {searching && <div className="wide-rail-search"><Search size={15}/><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="Search bots…"/><button onClick={() => { setQuery(''); setSearching(false) }} aria-label="Clear search"><X size={15}/></button></div>}
       <section className="bot-list wide-rail-list">{rows.map(({ profile, session }, index) => <button className={`bot-row${session && session.id === selected?.id ? ' selected' : ''}`} style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={profile.name} disabled={!session} onClick={() => session && void openSession(session)}><BotAvatar profile={profile} fallbackName={profile.name}/><span className="bot-copy"><b>{profile.display_name || titleize(profile.name)}</b><small>{session?.preview || profile.description || 'No messages yet'}</small></span><span className="meta">{ago(session?.last_active)}{session && <i className={session.unread ? 'unread' : ''}/>}</span></button>)}</section>
     </aside>
 
-    <button className="wide-divider" onClick={() => setRailCollapsed(value => !value)} aria-label="Toggle Bots column" title="Toggle Bots column"/>
+    <button className="wide-divider" onPointerDown={event => dragColumn('rail', event)} aria-label="Drag to resize the Bots column, or click to toggle it" title="Drag to resize · click to toggle"/>
 
     <div className="wide-main">{screen}</div>
 
-    <button className="wide-divider" onClick={() => setContextCollapsed(value => !value)} aria-label="Toggle computer column" title="Toggle computer column"/>
+    <button className="wide-divider" onPointerDown={event => dragColumn('context', event)} aria-label="Drag to resize the computer column, or click to toggle it" title="Drag to resize · click to toggle"/>
 
     <aside className="wide-context" aria-label="Bot computer and routines">
       {selected ? <>
