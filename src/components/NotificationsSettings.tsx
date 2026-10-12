@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, BellOff, BellRing, LoaderCircle } from 'lucide-react'
 
 import { readNotificationPreferences, writeNotificationPreferences, type NotificationPreferences } from '../bot-notifications'
-import { ensurePermission, notificationPlatform, notificationsAvailable, permissionState, type PermissionState } from '../notification-service'
+import { ensurePermissionWithDeadline, notificationPlatform, notificationsAvailable, permissionState, type PermissionState } from '../notification-service'
+import { requestNotificationResync } from '../notification-bus'
 import { useEdgeSwipeBack } from '../edge-swipe'
 import type { LiveProfile } from '../hermes'
 
@@ -24,6 +25,7 @@ export function NotificationsSettings({ back, profiles }: { back: () => void; pr
   const [preferences, setPreferences] = useState<NotificationPreferences>(() => readNotificationPreferences())
   const [permission, setPermission] = useState<PermissionState | null>(null)
   const [requesting, setRequesting] = useState(false)
+  const [hint, setHint] = useState('')
   const available = notificationsAvailable()
   const platform = notificationPlatform()
 
@@ -37,12 +39,36 @@ export function NotificationsSettings({ back, profiles }: { back: () => void; pr
 
   const requestPermission = async () => {
     setRequesting(true)
+    setHint('')
     try {
-      const result = await ensurePermission()
-      if (result) setPermission(result)
+      const result = await ensurePermissionWithDeadline()
+      if (result) {
+        setPermission(result)
+        // A grant is invisible to the shell's sync effect, so ask for a re-post: work already
+        // in flight should announce itself now, not at its next state change.
+        if (result.granted) requestNotificationResync()
+        return
+      }
+      // No answer inside the deadline: the dialog may have been answered after it, or the
+      // native callback never arrived. Ask Android directly so the screen shows the truth
+      // rather than staying stuck on a request that is no longer being awaited.
+      const settled = await permissionState()
+      setPermission(settled)
+      if (settled?.granted) { requestNotificationResync(); return }
+      setHint('Android did not report an answer. If no prompt appeared, allow notifications for Hermes Mobile in system settings.')
     } finally {
       setRequesting(false)
     }
+  }
+
+  /**
+   * Turning notifications on is the moment the user means it, so Android is asked right away
+   * rather than leaving them to find the button above.
+   */
+  const toggleEnabled = () => {
+    const next = !preferences.enabled
+    update({ enabled: next })
+    if (next && available && !permissionGranted) void requestPermission()
   }
 
   // An empty selection means "every Bot"; toggling one off materialises the full
@@ -68,12 +94,13 @@ export function NotificationsSettings({ back, profiles }: { back: () => void; pr
     </section>
 
     {available && !permissionGranted && <button className="primary wide notification-allow" disabled={requesting} onClick={() => void requestPermission()}>{requesting ? <><LoaderCircle className="connection-sync-spinner" size={17}/> Asking Android…</> : 'Allow notifications'}</button>}
+    {hint && <p className="notification-hint" role="status">{hint}</p>}
     {available && permissionGranted && permission?.enabledInSystem === false && <p className="notification-hint" role="status">Android is blocking Hermes Mobile notifications. Turn them back on in system settings.</p>}
 
     {!available && <p className="notification-hint" role="status">This {platform === 'desktop' ? 'desktop build' : 'platform'} cannot post OS notifications. The settings below still apply on your phone.</p>}
 
     <section className="menu-list">
-      <button className="settings-toggle-row" onClick={() => update({ enabled: !preferences.enabled })} aria-pressed={preferences.enabled}>
+      <button className="settings-toggle-row" onClick={toggleEnabled} aria-pressed={preferences.enabled}>
         Bot notifications <span className={`capability-toggle ${preferences.enabled ? 'on' : ''}`}><i/>{preferences.enabled ? 'ON' : 'OFF'}</span>
       </button>
     </section>
