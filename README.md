@@ -28,7 +28,7 @@
 
 ## Why Hermes Mobile
 
-Hermes Mobile is a beautiful cross-platform open-source mobile applicaiton that grants easy control of your Hermes Bots (thanks Nous!). It's mobile-native, beautifully compact at ~25MB, and all it really does is connect to your existing Hermes runtime/agents/bots/computer via Tailscale (see Tailscale instrucitons below or in-app).
+Hermes Mobile is a beautiful cross-platform open-source mobile application that grants easy control of your Hermes Bots (thanks Nous!). It's mobile-native, beautifully compact at ~25MB, and all it really does is connect to your existing Hermes runtime/agents/bots/computer via Tailscale (see Tailscale instructions below or in-app).
 
 <p align="center">
   <img src="docs/assets/HermesMobileReadmeHero.png" alt="Hermes Mobile promotional banner with the headline Give each Bot a job, bot role labels, and a blue-glowing smartphone showing an AI development chat" width="1200" />
@@ -73,6 +73,8 @@ pnpm tauri ios dev
 - **Host-owned authority:** The app never starts a model/runtime and never copies provider credentials into the frontend.
 - **Bot and Session views:** Bots are profile-owned canonical chats; Sessions is the all-profile runtime session projection.
 - **Mobile-native controls:** Pull-to-refresh, attachment routing through Hermes, live skill completion, themes, profile settings, and cross-profile scheduled tasks.
+- **Wide workspace:** Unfolded foldables, tablets and iPad get a three-pane layout — the Bots rail, the conversation, and the Bot's computer and routines — with draggable, collapsible columns that remember your arrangement per device.
+- **Multi-Bot group chats:** Talk to several Bots in one conversation, with each reply attributed to its member, streamed live, and restored when you come back.
 - **Secure pairing readiness:** Security & Pairing uses the real Hermes `/api/status` discovery check for a supplied Tailscale/HTTPS gateway URL and provides the safe Android connection model. It deliberately does not collect or persist a credential until the Android/iOS native secure-storage token/OAuth flow is wired.
 
 ## Pair an Android phone safely
@@ -116,15 +118,15 @@ These are planned directions for making Hermes Mobile an even richer companion f
 - [ ] **Approval and sensitive-action inbox** — Provide one place to review pending approvals, sudo prompts, clarification requests, and other actions that need the user’s attention.
 - [ ] **Richer tool-call, thinking, and action presentation** — Bring more of Hermes Desktop’s detailed activity insight to mobile, including clearer tool progress, model activity, reasoning summaries, and action status. Add chat-level controls for showing detailed insights, compact summaries, or no reasoning/activity detail.
 - [ ] **Plan mode and question handling** — Add a polished Plan mode and a clear way to review, answer, approve, or revise Bot questions and proposed plans without losing conversation context.
-- [ ] **Group Chats** — Expand beyond the current one-Bot chat and session model to support multi-Bot group conversations with clear participant identity and delivery behavior.
-- [ ] **More proactive chat synchronization** — Improve foreground refresh and live update behavior so streamed thinking, tool calls, and subsequent responses appear promptly without requiring a manual refresh tap.
+- ✅ **Group Chats** — Multi-Bot group conversations with clear participant identity, live streamed replies, and rooms that restore their history. **Thanks @SteStein.com**
+- ✅ **More proactive chat synchronization** — Streamed thinking, tool calls, and subsequent responses now appear promptly on their own, for both Bot chats and group rooms, without a manual refresh tap. **Thanks @SteStein.com**
 - [ ] **Desktop screen and computer view** — Add an optional desktop/computer control entry point in the chat header so users can inspect a Bot’s available screen or view the Hermes Desktop computer when that capability is configured and authorized.
 
 ### Mobile interaction & design
 
 - ✅ **Gestures and swipe navigation** — Add mobile-native gestures throughout the app, including Android edge/back gestures and intuitive swipe interactions for moving between screens and task/chat surfaces. **Thanks @SteStein.com**
 - ✅ **Better Android Back and iOS navigation parity** — Make system Back, swipe-back, modal dismissal, nested task screens, and chat navigation feel consistent across Android, iOS, and desktop. **Thanks @SteStein.com**
-- [ ] **Native-feeling motion and interaction polish** — Build the spring-damped animations, gesture settling, transition physics, haptics, and other small interaction niceties that native mobile apps often provide automatically, but that Hermes Mobile must deliberately implement across its Tauri surfaces.
+- ✅ **Native-feeling motion and interaction polish** — Spring-damped animations, gesture settling, transition physics, haptics, and the small interaction niceties native mobile apps provide, implemented deliberately across every Tauri surface. **Thanks @SteStein.com**
 
 ### Platform, files & host connectivity
 

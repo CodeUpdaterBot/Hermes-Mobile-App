@@ -10,5 +10,9 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     hmr: host ? { protocol: 'ws', host, port: 1421 } : undefined,
+    // The Rust side rebuilds constantly inside src-tauri/target. Watching those
+    // artifacts makes the frontend watcher crash with EBUSY on Windows while
+    // Cargo is mid-write, so the native build directory is excluded.
+    watch: { ignored: ['**/src-tauri/**', '**/.git/**'] },
   },
 })

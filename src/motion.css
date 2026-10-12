@@ -1,0 +1,605 @@
+/* Native-feel interaction layer.
+   Loaded last in main.tsx so it can refine (never replace) the component stylesheets.
+   Rules here are additive: motion tokens, touch hygiene, press physics, screen
+   transitions, sheet/popover presentation, scroll physics and a global
+   reduced-motion kill switch. No layout geometry is intentionally changed. */
+
+:root{
+  --motion-instant:90ms;
+  --motion-fast:130ms;
+  --motion-quick:190ms;
+  --motion-medium:260ms;
+  --motion-slow:340ms;
+  --motion-sheet:380ms;
+  --ease-standard:cubic-bezier(.2,.8,.2,1);
+  --ease-out:cubic-bezier(.16,1,.3,1);
+  --ease-spring:cubic-bezier(.34,1.42,.52,1);
+  --ease-spring-soft:cubic-bezier(.32,.72,0,1);
+  --press-scale:.965;
+  --press-scale-strong:.94;
+  --press-dim:.78;
+  --shimmer-band:rgba(255,255,255,.055);
+  --haptic-shadow:0 1px 0 var(--border);
+}
+
+/* ---------- Touch hygiene ---------- */
+
+*{-webkit-tap-highlight-color:rgba(0,0,0,0)}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+
+/* Controls respond instantly; the text the user is reading stays selectable. */
+button,[role='button'],a,label,.tabs,.chat-header,.roster-pinned,.management-head,.tasks-head,.profile-sheet-head,.panel-head,.composer-toolbar,.task-card-actions,.task-detail-actions,.message-actions{
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+}
+input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,.notice,.profile-section p{
+  user-select:text;
+  -webkit-user-select:text;
+}
+
+/* ---------- Scroll physics ---------- */
+
+.scroll-surface,
+.roster-list-scroll,.management-sheet,.tasks-sheet,.task-detail,.task-create-scroll,.profile-sheet,.profile-model-picker,.profile-soul textarea,.capability-list,.task-delivery-list,.thread-scroll,.slash-popover,.mention-popover,.app.chat-shell .model-list{
+  overscroll-behavior:contain;
+}
+.roster-list-scroll,.thread-scroll{overscroll-behavior-y:contain}
+
+/* Full-screen sheets own their scrolling. With only `min-height` they grow to
+   fit their content instead of scrolling, which pushes scrolling onto the
+   document and makes wheel/touch behaviour depend on the page scroller
+   (scrollbar chrome is hidden there, and a root-level overscroll setting then
+   sits between the pointer and the content). A real height makes the sheet a
+   native-style scroll surface, so the pointer always drives the sheet. */
+.profile-sheet,.management-sheet,.tasks-sheet,.task-detail{
+  height:100vh;
+  height:100dvh;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+.task-create-sheet{height:100vh;height:100dvh;min-height:0}
+
+/* The remaining full-screen pages declare `overflow-y:auto` with a hidden
+   scrollbar (the same internal-scroll intent as the sheets) but inherit only
+   `min-height` from `.app`, so they grew to their content instead of scrolling
+   and left wheel scrolling to the document. `.roster-shell` and `.chat-shell`
+   already constrain their height this way and keep their own inner scrollers. */
+.app.panel,.app.wizard{
+  height:100vh;
+  height:100dvh;
+  min-height:0;
+  overflow-y:auto;
+}
+
+/* ---------- Activity bubble ---------- */
+
+/* A whole run of tool calls occupies one row, so it follows the call in flight
+   without stacking a card per call. Built from semantic tokens so every theme
+   inherits it rather than needing its own copy. */
+.activity-bubble{
+  margin:0 0 6px 4px;
+  border:1px solid var(--border);
+  border-radius:11px;
+  background:var(--panel);
+  color:var(--text);
+  animation:row-in var(--motion-quick) var(--ease-out) backwards;
+}
+.activity-head{
+  width:100%;
+  min-height:44px;
+  padding:9px 12px;
+  display:grid;
+  grid-template-columns:24px minmax(0,1fr) auto;
+  align-items:center;
+  gap:9px;
+  border:0;
+  background:transparent;
+  color:inherit;
+  text-align:left;
+  cursor:pointer;
+  touch-action:manipulation;
+}
+.activity-head:disabled{cursor:default}
+.activity-glyph{width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:7px;background:var(--surface);color:var(--secondary)}
+.activity-glyph i{font-style:normal;font-size:12px;line-height:1;color:var(--accent)}
+.activity-labels{display:flex;min-width:0;flex-direction:column}
+.activity-labels b{font:500 12px/1.35 "JetBrains Mono",ui-monospace,monospace;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-labels small{margin-top:2px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-head svg.turn{transform:rotate(180deg)}
+.activity-head svg{transition:transform var(--motion-quick) var(--ease-spring);color:var(--quiet)}
+.activity-bubble.running .activity-glyph i{animation:tool-pulse 1.1s infinite}
+.activity-bubble.failed{border-color:rgba(248,113,113,.32)}
+.activity-bubble.failed .activity-glyph{color:#f48d8d}
+.activity-steps{margin:0;padding:2px 12px 6px 12px;list-style:none;border-top:1px solid var(--border);animation:row-in var(--motion-quick) var(--ease-out) backwards}
+.activity-steps li{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
+.activity-steps li:last-child{border-bottom:0}
+.activity-step-glyph{color:var(--quiet);font-size:11px;text-align:center}
+.activity-steps li.failed .activity-step-glyph{color:#f48d8d}
+.activity-steps b{font:500 12px/1.35 "JetBrains Mono",ui-monospace,monospace;color:var(--secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-steps small{grid-column:2;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-steps time{color:var(--quiet);font:11px "JetBrains Mono",ui-monospace,monospace}
+/* Reasoning steps share the bubble but read as thinking, not as work. */
+.activity-bubble.thinking .activity-glyph{color:var(--accent)}
+.activity-steps li.thinking .activity-step-glyph{color:var(--accent)}
+.activity-steps li.thinking b{color:var(--muted);font-weight:500}
+.activity-steps li.thinking small{font-style:italic}
+/* The pale failure red is only legible on the dark canvas. */
+[data-theme='light'] .activity-bubble.failed{border-color:rgba(180,35,24,.35)}
+[data-theme='light'] .activity-bubble.failed .activity-glyph,
+[data-theme='light'] .activity-steps li.failed .activity-step-glyph{color:#b42318}
+
+/* A settings row whose trailing control is a switch rather than a chevron.
+   The label stays a plain text node matching every other row, so only the
+   switch needs rules: it must not stretch and must sit on the text baseline. */
+.menu-list .settings-toggle-row{align-items:center}
+.menu-list .settings-toggle-row .capability-toggle{flex:0 0 auto}
+
+/* ---------- Notifications settings ---------- */
+
+.notification-hero{display:flex;align-items:center;gap:11px;margin-top:18px;padding:13px 14px;border:1px solid var(--border);border-radius:12px;background:var(--panel);color:var(--text)}
+.notification-hero svg{color:var(--accent);flex:0 0 auto}
+.notification-hero b{display:block;font-size:13px;font-weight:600}
+.notification-hero small{display:block;margin-top:2px;color:var(--muted);font-size:11px;line-height:1.4}
+.notification-allow{margin-top:12px}
+.notification-hint{margin:12px 2px 0;color:var(--muted);font-size:11.5px;line-height:1.5}
+.notification-section-label{margin:22px 2px 8px;color:var(--muted);font:600 10.5px system-ui;letter-spacing:.1em;text-transform:uppercase}
+.notification-quiet{display:flex;gap:10px;margin-top:10px}
+.notification-quiet label{flex:1 1 0;display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:11px}
+.notification-quiet select{width:100%;min-height:40px;padding:0 10px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);font-size:13px}
+.notification-note{margin:18px 2px 0;color:var(--quiet);font-size:11px;line-height:1.55}
+
+/* ---------- Wide-screen workspace ---------- */
+
+/* Tablet landscape and unfolded foldables get the three-column workspace: Bots
+   on the left, the conversation in the middle, the Bot's own computer on the
+   right. Narrow phones keep the existing single-surface navigation untouched. */
+.wide-shell{display:grid;grid-template-columns:minmax(248px,296px) 7px minmax(340px,1fr) 7px minmax(248px,296px);height:100dvh;background:var(--bg);color:var(--text)}
+.wide-shell.rail-collapsed{grid-template-columns:0 7px minmax(340px,1fr) 7px minmax(248px,296px)}
+.wide-shell.rail-collapsed .wide-rail{opacity:0;pointer-events:none;overflow:hidden}
+/* The right divider keeps its width while its column is collapsed, so the same
+   click can bring the column back rather than stranding the user. */
+.wide-shell.context-collapsed{grid-template-columns:minmax(248px,296px) 7px minmax(340px,1fr) 7px 0}
+.wide-shell.rail-collapsed.context-collapsed{grid-template-columns:0 7px minmax(340px,1fr) 7px 0}
+.wide-shell.context-collapsed .wide-context{opacity:0;pointer-events:none;overflow:hidden}
+
+.wide-rail{display:flex;min-width:0;flex-direction:column;background:var(--bg);overflow:hidden;transition:opacity var(--motion-quick) var(--ease-out)}
+/* One separator per column edge. Screens carry their own left+right borders from a
+   >=560px rule, which stacked with the dividers and read as double lines on the
+   left edge and triple on the right. In the wide shell the dividers are the only
+   vertical separator, matching the single rule under the chat header. */
+.wide-main>.app,.wide-context>*{border-left:0;border-right:0}
+.wide-rail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:26px 12px 12px 18px}
+.wide-rail-head b{font-size:22px;font-weight:600}
+.wide-rail-search{display:flex;align-items:center;gap:8px;margin:2px 12px 8px;padding:0 10px;min-height:38px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--quiet)}
+.wide-rail-search input{flex:1 1 auto;min-width:0;border:0;background:transparent;color:var(--text);font-size:13px;outline:none}
+.wide-rail-search button{border:0;background:transparent;color:var(--quiet);display:flex;cursor:pointer;padding:0}
+/* Equal breathing room on both sides of a row: the right edge had 18px while the
+   avatars sat flush left. The rail column is widened by the same 18px so the rows
+   keep their existing content width. */
+.wide-rail-list{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;padding:0 18px 16px}
+.wide-rail-list::-webkit-scrollbar{display:none;width:0}
+
+/* Which Bot's conversation is open. Without this the selected row looked identical to
+   every other one, even though the class was already being applied. */
+.wide-rail .bot-row.selected{background:rgba(255,255,255,.07)}
+/* Bleed the selected row to the rail edges while keeping its content on the same
+   18px grid as every other row: the list's padding stays, the highlight negates it. */
+.wide-rail .bot-row.selected{margin-left:-18px;margin-right:-18px;padding-left:18px;padding-right:18px;border-radius:0}
+.wide-rail .bot-row.selected b{color:var(--text)}
+[data-theme='light'] .wide-rail .bot-row.selected{background:rgba(0,0,0,.055)}
+
+/* The vertical divider is a real grid column, so clicking it collapses the column
+   it belongs to — the same gesture on either side of the middle pane. */
+.wide-divider{width:7px;height:100%;border:0;padding:0;background:transparent;cursor:col-resize;position:relative;touch-action:none}
+.wide-divider::after{content:'';position:absolute;inset:0 3px;background:var(--border);transition:background var(--motion-fast) var(--ease-out)}
+.wide-divider:hover::after{background:var(--accent)}
+/* Widen the grab area well past the visible 7px rule: a hairline is unhittable on touch,
+   and a drag needs somewhere to start. */
+.wide-divider::before{content:'';position:absolute;top:0;bottom:0;left:-9px;right:-9px}
+/* The tab shown when the right column is collapsed. The old way back was the bare divider
+   at the very screen edge - effectively invisible, which is why it read as impossible to
+   click. It now gets a visible tab, matching the Bots column's. */
+.wide-context-reveal{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:40;width:20px;height:64px;border:1px solid var(--border);border-right:0;border-radius:10px 0 0 10px;background:var(--panel);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.wide-context-reveal:hover{color:var(--text);border-color:var(--accent)}
+.wide-rail-actions{display:flex;align-items:center;gap:6px}
+
+.wide-main{display:flex;min-width:0;flex-direction:column;background:var(--bg)}
+/* Inside a column any screen must fill it rather than re-centring itself. The flex
+   basis must be 0, not auto: a sheet that scrolls itself (Bot settings) would
+   otherwise be sized by its own content, grow past the clipped column, and become
+   impossible to scroll. */
+.wide-main>.app{height:100%;max-width:none;margin:0;flex:1 1 0;min-height:0}
+/* A screen's scroller must be sized by the column, never by its own content —
+   `flex-basis:auto` lets a long roster grow the pane instead of scrolling it,
+   which also pushes the frozen header out of view. */
+.wide-main .roster-list-scroll,.wide-main .thread-scroll,.wide-main .tasks-sheet,.wide-main .management-sheet{flex:1 1 0;min-height:0;overflow-y:auto}
+
+/* In the tri-fold the header's back control has nowhere to go (its column is the
+   Bots rail), so the Bot's own avatar stands in that slot instead — a little
+   larger than the inline avatar it replaces, matching the round controls' 40px. */
+.chat-header-avatar{display:flex;align-items:center;justify-content:center}
+.chat-header-avatar .bot-avatar-slot,.chat-header-avatar .avatar-fallback{width:40px;height:40px;min-width:40px;flex:0 0 40px;border-radius:14px;font-size:14px}
+
+/* Reveal the rail again from the column edge once it is hidden. */
+.wide-rail-reveal{position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:40;width:16px;height:56px;border:1px solid var(--border);border-left:0;border-radius:0 10px 10px 0;background:var(--panel);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.wide-context-empty{margin:22px 16px;color:var(--muted);font-size:11.5px;line-height:1.55}
+
+/* ---------- Capabilities in the wide right column ---------- */
+
+/* Reuses the Capabilities screen's own row/section classes so the two render the
+   same thing; only spacing and the section separator are added here. */
+.sidebar-caps{border-top:1px solid var(--border);margin-top:6px;padding:14px 14px 20px}
+.sidebar-caps-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.sidebar-caps-head .profile-section-label{margin-bottom:0}
+.sidebar-caps-actions{display:flex;align-items:center;gap:2px}
+.sidebar-caps-actions button{border:0;background:transparent;color:var(--quiet);display:flex;padding:3px;cursor:pointer}
+.sidebar-caps-actions button:hover{color:var(--text)}
+.sidebar-caps .capability-search{margin-bottom:10px}
+.sidebar-caps .capability-save{margin:0 0 10px}
+/* Exactly three rows, then scroll: a fixed height rather than max-height, because a
+   short list's auto height (three 61px rows = 183px) sits below any cap and merely
+   clipped its own last row. 190px shows three rows and scrolls beyond. Overscroll
+   chains to the column so the wheel is not trapped here once the list ends. */
+.sidebar-caps .capability-list{height:190px;overflow-y:auto;overscroll-behavior:auto}
+/* One line per description in this narrow column: the shared rule clamps to two, and
+   a wrapped row grows taller than the others so a three-row cap silently showed two. */
+.sidebar-caps .capability-row small{display:block;-webkit-line-clamp:1;white-space:nowrap;text-overflow:ellipsis}
+.sidebar-caps .capability-group-head{padding:12px 0 8px}
+
+/* ---------- Group chats ---------- */
+
+/* A group row is a conversation row: no background of its own (the tint read as a
+   selected/highlighted state), only the room glyph where a Bot shows its avatar. */
+.group-glyph{width:40px;height:40px;min-width:40px;border-radius:14px;display:grid;place-items:center;background:var(--surface);border:1px solid var(--border);color:var(--secondary)}
+.group-glyph.small{width:30px;height:30px;min-width:30px;border-radius:10px}
+
+/* The group header mirrors a Bot chat's title block so the two read identically. */
+.group-title{min-width:0;padding:0;display:flex;align-items:center;gap:10px;text-align:left}
+.group-title>span:last-child{display:flex;min-width:0;flex-direction:column}
+.group-msg-who{display:block;margin-bottom:3px;color:var(--muted);font-size:11px;font-weight:600}
+.group-status{margin:2px 0;color:var(--muted);font-size:11.5px;text-align:center}
+.group-status.error{color:#f87171}
+[data-theme='light'] .group-status.error{color:#b42318}
+.group-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:64px 18px 12px;color:var(--muted)}
+.group-empty b{color:var(--text);font-size:16px}
+.group-empty p{margin:0;max-width:420px;font-size:12.5px;line-height:1.55}
+
+/* The group composer is the same field as a Bot chat's: the shared `.ai-composer`
+   textarea rule allows scrolling, which shows desktop scrollbar chrome on this
+   surface, so it is hidden here the way the rest of the mobile shell hides it. */
+.app.chat-shell .group-composer textarea{scrollbar-width:none;padding:1px 5px 7px;min-height:27px;max-height:132px;resize:none}
+.app.chat-shell .group-composer textarea::-webkit-scrollbar{display:none;width:0;height:0}
+
+.new-group-body{padding:0 18px calc(26px + env(safe-area-inset-bottom))}
+.new-group-intro{margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5}
+.new-group-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.new-group-chip{display:flex;align-items:center;gap:6px;padding:5px 7px 5px 5px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);font-size:12px}
+.new-group-chip button{border:0;background:transparent;color:var(--quiet);display:flex;padding:0;cursor:pointer}
+.new-group-search{display:flex;align-items:center;gap:8px;height:42px;padding:0 10px;margin-bottom:10px;border:1px solid var(--border);border-radius:12px;background:var(--panel);color:var(--quiet)}
+.new-group-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--text);font-size:13px;outline:none}
+/* Bounded so a long roster cannot push the name field and Create off-screen. */
+.new-group-list{max-height:min(340px,42dvh);overflow-y:auto;overscroll-behavior:auto;border:1px solid var(--border);border-radius:14px;background:var(--panel);scrollbar-width:none}
+.new-group-list::-webkit-scrollbar{display:none;width:0}
+.new-group-row{width:100%;display:flex;align-items:center;gap:11px;padding:11px 12px;border:0;border-bottom:1px solid var(--border);background:transparent;text-align:left;cursor:pointer}
+.new-group-row:last-child{border-bottom:0}
+.new-group-row.selected{background:rgba(53,199,89,.10)}
+.new-group-row:disabled{opacity:.45;cursor:not-allowed}
+.new-group-row-copy{display:flex;flex-direction:column;min-width:0;flex:1}
+.new-group-row-copy b{font-size:13px;font-weight:590;color:var(--text)}
+.new-group-row-copy small{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.new-group-check{width:22px;height:22px;min-width:22px;border-radius:7px;display:grid;place-items:center;background:#35c759;color:#04270f}
+.new-group-add{width:22px;height:22px;min-width:22px;border-radius:7px;display:grid;place-items:center;border:1px dashed var(--border);color:var(--quiet)}
+.new-group-hint{margin:8px 0 0;color:var(--muted);font-size:11.5px}
+.new-group-name{display:grid;gap:6px;margin-top:14px}
+.new-group-name>span{color:var(--muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.new-group-name input{height:44px;padding:0 12px;border:1px solid var(--border);border-radius:12px;background:var(--panel);color:var(--text);font-size:14px;outline:none}
+.new-group-actions{display:flex;gap:10px;margin-top:16px}
+.new-group-actions button{flex:1;min-height:46px;display:flex;align-items:center;justify-content:center;gap:7px}
+
+/* ---------- Computer pane ---------- */
+
+.wide-context{min-width:0;overflow-y:auto;overscroll-behavior:contain;background:var(--bg);scrollbar-width:none}
+.wide-context::-webkit-scrollbar{display:none;width:0}
+.computer-pane{display:flex;flex-direction:column;gap:10px;padding:14px 14px 22px}
+.computer-head{display:flex;align-items:center;gap:8px}
+.computer-head svg{color:var(--muted);flex:0 0 auto}
+.computer-head b{flex:1 1 auto;min-width:0;font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.computer-frame{position:relative;aspect-ratio:16/10;border:1px solid var(--border);border-radius:10px;background:var(--surface);overflow:hidden;display:flex;align-items:center;justify-content:center}
+.computer-frame img{width:100%;height:100%;object-fit:cover;display:block}
+.computer-frame span{padding:0 14px;color:var(--muted);font-size:11.5px;text-align:center;line-height:1.5}
+.computer-lease{display:flex;align-items:center;gap:7px;color:var(--secondary);font-size:11.5px}
+.computer-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:0 0 auto}
+.computer-dot.human{background:#e0a44a}
+.computer-note{margin:0;color:var(--muted);font-size:11.5px;line-height:1.55}
+.computer-note.warn{color:#f18088}
+.computer-command{display:flex;align-items:center;gap:8px;width:100%;margin-top:8px;padding:9px 10px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);font-size:11px;cursor:pointer;text-align:left}
+.computer-command code{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:"JetBrains Mono",ui-monospace,monospace}
+.computer-command span{color:var(--muted);flex:0 0 auto}
+
+/* ---------- Clarify card ---------- */
+
+/* The host asking a question mid-turn. Sits directly above the composer so it
+   reads as part of the conversation rather than a separate screen. */
+.clarify-card{margin:0 16px 10px;border:1px solid var(--border);border-radius:14px;background:var(--panel);color:var(--text);box-shadow:0 -8px 26px rgba(0,0,0,.28);animation:sheet-rise var(--motion-medium) var(--ease-out) backwards}
+.clarify-head{display:flex;align-items:flex-start;gap:10px;padding:13px 13px 10px 15px}
+.clarify-head>div{flex:1 1 auto;min-width:0}
+.clarify-head b{display:block;font-size:13.5px;font-weight:650}
+.clarify-head small{display:block;margin-top:3px;color:var(--muted);font-size:11.5px;line-height:1.45}
+.clarify-close{flex:0 0 auto;width:30px;height:30px;border:0;border-radius:9px;background:transparent;color:var(--quiet);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.clarify-body{max-height:46dvh;overflow-y:auto;overscroll-behavior:contain;padding:0 13px 4px 15px;scrollbar-width:none}
+.clarify-body::-webkit-scrollbar{display:none;width:0}
+.clarify-question+.clarify-question{margin-top:14px;padding-top:13px;border-top:1px solid var(--border)}
+.clarify-prompt{margin:0 0 9px;color:var(--secondary);font-size:12.5px;line-height:1.45}
+.clarify-choices{display:flex;flex-direction:column;gap:7px}
+.clarify-choice{display:flex;align-items:center;gap:11px;width:100%;min-height:44px;padding:9px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font-size:13px;text-align:left;cursor:pointer;touch-action:manipulation}
+.clarify-choice i{flex:0 0 auto;width:22px;height:22px;border-radius:6px;background:var(--panel);color:var(--muted);font:600 11px system-ui;font-style:normal;display:flex;align-items:center;justify-content:center}
+.clarify-choice span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clarify-choice.selected{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface))}
+.clarify-choice.selected i{background:var(--accent);color:#fff}
+.clarify-input{width:100%;margin-top:8px;min-height:44px;padding:0 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font-size:13px}
+.clarify-input::placeholder{color:var(--quiet)}
+.clarify-actions{display:flex;gap:9px;padding:12px 13px 13px 15px}
+.clarify-actions button{flex:1 1 auto}
+.clarify-actions button:disabled{opacity:.5}
+
+/* ---------- Routines (wide right column) ---------- */
+
+.routines{border-top:1px solid var(--border);margin-top:6px;padding:14px 14px 4px}
+.routines-head{display:flex;align-items:center;gap:7px;color:var(--muted)}
+.routines-head svg{flex:0 0 auto}
+.routines-head b{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase}
+.routines-list{margin:10px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
+.routine{display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
+.routine:last-child{border-bottom:0}
+.routine-dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.routine-dot.paused{background:var(--quiet)}
+.routine-dot.running{background:var(--accent);animation:tool-pulse 1.4s infinite}
+.routine-dot.error{background:#e0a44a}
+.routine-copy{display:flex;min-width:0;flex-direction:column}
+.routine-copy b{font-size:12.5px;font-weight:550;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.routine-copy small{margin-top:2px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.routine-state{flex:0 0 auto;color:var(--muted);font-size:10.5px;font-weight:600}
+.routine-state.error{color:#e0a44a}
+/* A paused routine stays visible but recedes, so pausing never hides the way back. */
+.routine.off .routine-copy b,.routine.off .routine-copy small{color:var(--quiet)}
+.routine.off .routine-state{color:var(--quiet)}
+.routines-note{margin:10px 0 0;color:var(--muted);font-size:11.5px}
+.routines-note.warn{color:#f18088}
+.routines-new{margin-top:12px;width:100%;min-height:38px;border:1px dashed var(--border);border-radius:9px;background:transparent;color:var(--secondary);font-size:12px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+
+/* ---------- Press physics ---------- */
+
+/* The independent `scale` property is used deliberately: it composes with any
+   existing `transform` on the element instead of overwriting it. */
+.icon-button,.round-control,.back-button,.composer-icon,.composer-selector,.composer-add,.mic-button,.voice-cancel,
+.primary,.secondary,.notice button,.search button,.menu-list button,.tabs button,.theme-picker button,
+.bot-row,.task-card,.task-trigger,.task-delete-icon,.task-toggle,.prompt-edit-button,.task-detail-actions button,
+.profile-section,.profile-edit,.profile-model-row,.capability-row,.capability-entry,.capability-toggle,.capability-save,.capability-action,
+.slash-popover button,.mention-popover button,.model-list button,.reasoning-popover button,.message-actions button,
+.chips button,.model-option,.appearance-grid button,.appearance-actions button,.pairing-test,.pairing-signin,
+.attachment-chip button,.context-row button,.latest-button,.pull-refresh-cue,.task-slot-section button{
+  transition:scale var(--motion-fast) var(--ease-standard),
+             background-color var(--motion-quick) var(--ease-standard),
+             border-color var(--motion-quick) var(--ease-standard),
+             color var(--motion-quick) var(--ease-standard),
+             opacity var(--motion-quick) var(--ease-standard),
+             box-shadow var(--motion-quick) var(--ease-standard),
+             filter var(--motion-quick) var(--ease-standard);
+  will-change:scale;
+}
+
+:is(.icon-button,.round-control,.back-button,.composer-icon,.composer-selector,.composer-add,.mic-button,.voice-cancel,
+.primary,.secondary,.notice button,.search button,.menu-list button,.tabs button,.theme-picker button,
+.bot-row,.task-trigger,.task-delete-icon,.task-toggle,.prompt-edit-button,.task-detail-actions button,
+.profile-edit,.profile-model-row,.capability-row,.capability-entry,.capability-toggle,.capability-save,.capability-action,
+.slash-popover button,.mention-popover button,.model-list button,.reasoning-popover button,.message-actions button,
+.chips button,.model-option,.appearance-grid button,.appearance-actions button,.pairing-test,.pairing-signin,
+.attachment-chip button,.context-row button,.task-slot-section button):active:not(:disabled){
+  scale:var(--press-scale);
+}
+
+:is(.primary,.composer-send,.task-trigger,.pairing-signin,.task-delete-modal .delete,.task-delete-icon):active:not(:disabled){
+  scale:var(--press-scale-strong);
+}
+
+/* Rows and cards are large targets: recognise the press without shrinking text. */
+:is(.bot-row,.task-card,.profile-section):active:not(:disabled){
+  scale:1;
+  background-color:rgba(255,255,255,.032);
+}
+.bot-row:active:not(:disabled) .bot-avatar,
+.task-card:active:not(:disabled) .task-card-summary{opacity:.86}
+
+/* Release settles back with a touch of spring. */
+:is(.icon-button,.round-control,.back-button,.primary,.secondary,.composer-icon,.composer-send,.task-trigger,.task-delete-icon):not(:active){
+  transition-timing-function:var(--ease-spring);
+}
+
+/* ---------- Screen transitions ---------- */
+
+@keyframes nav-fade{from{opacity:0}to{opacity:1}}
+@keyframes nav-push-in{from{opacity:0;translate:20px 0}to{opacity:1;translate:0 0}}
+@keyframes nav-pop-in{from{opacity:0;translate:-16px 0}to{opacity:1;translate:0 0}}
+@keyframes sheet-rise{from{opacity:0;translate:0 26px}to{opacity:1;translate:0 0}}
+
+.app,.panel.connection-screen,.about-screen,.pairing-screen,.management-sheet,.tasks-sheet,.task-create-sheet,.task-detail{
+  animation:nav-fade var(--motion-medium) var(--ease-out) backwards;
+}
+html[data-nav='forward'] :is(.app,.panel.connection-screen,.about-screen,.pairing-screen,.management-sheet,.tasks-sheet,.task-create-sheet,.task-detail){
+  animation-name:nav-push-in;
+}
+html[data-nav='back'] :is(.app,.panel.connection-screen,.about-screen,.pairing-screen,.management-sheet,.tasks-sheet,.task-create-sheet,.task-detail){
+  animation-name:nav-pop-in;
+}
+
+/* Sheets present from the bottom edge the way a native modal does. These use
+   compound `.app.<sheet>` selectors to match the specificity of the directional
+   rules above: `:is()` adopts its most specific argument, and that list holds a
+   two-class selector (`.panel.connection-screen`), so a single-class selector
+   would silently lose and sheets would inherit the push/pop slide instead. */
+html[data-nav] .app.wizard,
+html[data-nav] .app.profile-sheet,
+html[data-nav] .app.management-sheet,
+html[data-nav] .app.tasks-sheet,
+html[data-nav] .app.task-create-sheet,
+html[data-nav] .app.task-detail{
+  animation:sheet-rise var(--motion-sheet) var(--ease-out) backwards;
+}
+
+/* Wizard steps cross-fade forward instead of snapping. */
+.wizard>section{animation:nav-push-in var(--motion-medium) var(--ease-out) backwards}
+
+/* Fill mode is deliberately `backwards`, never `forwards`: a retained
+   `translate`/`scale` value would turn the screen root into a containing block
+   for any `position: fixed` descendant (action bars, modal backdrops). */
+
+/* ---------- Modals and scrims ---------- */
+
+@keyframes scrim-in{from{opacity:0}to{opacity:1}}
+@keyframes modal-spring{from{opacity:0;scale:.93;translate:0 14px}to{opacity:1;scale:1;translate:0 0}}
+
+.task-modal-backdrop,.popover-scrim{animation:scrim-in var(--motion-quick) var(--ease-standard) backwards}
+.task-delete-modal,.task-prompt-modal,.task-modal{transform-origin:50% 60%;animation:modal-spring var(--motion-medium) var(--ease-spring) backwards}
+
+/* ---------- Popover presentation ---------- */
+
+@keyframes popover-spring{from{opacity:0;scale:.94;translate:0 10px}to{opacity:1;scale:1;translate:0 0}}
+
+.mention-popover,.model-popover,.reasoning-popover,.slash-popover{
+  transform-origin:50% 100%;
+  animation:popover-spring var(--motion-medium) var(--ease-spring) backwards;
+}
+/* The reasoning popover is anchored to the right edge. */
+.reasoning-popover{transform-origin:100% 100%}
+
+/* ---------- Live activity ---------- */
+
+@keyframes row-in{from{opacity:0;translate:0 6px}to{opacity:1;translate:0 0}}
+.live-tool,.tool-card{animation:row-in var(--motion-quick) var(--ease-out) backwards}
+.tool-spinner{animation:tool-pulse 1.1s var(--ease-standard) infinite}
+.stream-pulse{animation:pulse 1.6s var(--ease-standard) infinite}
+.conversation-spinner i{animation-timing-function:steps(12,end)}
+.chat-pull-cue,.roster-pull-cue{transition:height var(--motion-quick) var(--ease-out),opacity var(--motion-quick) var(--ease-standard)}
+.pull-refresh-spinner{animation:pairing-spin .8s linear infinite}
+
+/* Latest pill rises in rather than appearing. */
+.latest-button{animation:popover-spring var(--motion-quick) var(--ease-spring) backwards}
+
+/* ---------- Loading shimmer ---------- */
+
+.skeletons i{
+  background:linear-gradient(90deg,transparent 0,var(--shimmer-band) 50%,transparent 100%),var(--panel);
+  background-size:200% 100%,100% 100%;
+  animation:shimmer 1.35s var(--ease-standard) infinite;
+}
+
+/* ---------- Selection and focus ---------- */
+
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+.bot-row:focus-visible,.menu-list button:focus-visible,.task-card:focus-visible{outline-offset:-2px}
+
+::selection{background:color-mix(in srgb,var(--accent) 34%,transparent)}
+
+/* ---------- Light-theme parity for the new effects ---------- */
+
+[data-theme='light']{
+  --shimmer-band:rgba(35,56,83,.06);
+}
+[data-theme='light'] :is(.bot-row,.task-card,.profile-section):active:not(:disabled){background-color:rgba(35,56,83,.05)}
+[data-theme='light'] .skeletons i{background:linear-gradient(90deg,transparent 0,rgba(35,56,83,.07) 50%,transparent 100%),#e4eaf2;background-size:200% 100%,100% 100%}
+
+/* ---------- Reduced motion ---------- */
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:1ms!important;
+    animation-iteration-count:1!important;
+    transition-duration:1ms!important;
+    scroll-behavior:auto!important;
+  }
+  .app,.panel.connection-screen,.about-screen,.pairing-screen,.management-sheet,.tasks-sheet,.task-create-sheet,.task-detail,
+  .wizard,.profile-sheet,.wizard>section,.mention-popover,.model-popover,.reasoning-popover,.slash-popover,.latest-button,
+  .task-delete-modal,.task-prompt-modal,.task-modal,.live-tool,.tool-card{
+    animation:none!important;
+  }
+  :is(.icon-button,.round-control,.back-button,.composer-icon,.composer-selector,.primary,.secondary,.bot-row,.task-card,
+  .menu-list button,.tabs button,.theme-picker button,.chips button,.model-option,.model-list button,.mention-popover button,
+  .slash-popover button,.reasoning-popover button,.appearance-grid button,.pairing-test,.pairing-signin,.task-trigger,
+  .composer-send,.capability-row,.capability-entry,.profile-section,.profile-model-row):active:not(:disabled){scale:1}
+}
+
+/* ---------- Surface-specific polish ---------- */
+
+/* The chat header separates from the transcript once content scrolls under it,
+   the way a native navigation bar lifts off its content. */
+.chat-header{
+  transition:box-shadow var(--motion-quick) var(--ease-standard),
+             border-color var(--motion-quick) var(--ease-standard),
+             background-color var(--motion-quick) var(--ease-standard);
+}
+.chat-header.elevated{box-shadow:0 10px 26px rgba(0,0,0,.36);border-color:rgba(255,255,255,.1)}
+[data-theme='light'] .chat-header.elevated{box-shadow:0 10px 22px rgba(30,50,80,.14);border-color:rgba(20,35,60,.16)}
+
+/* Conditional blocks arrive instead of popping into place. */
+.search,.notice,.roster-pull-cue,.chat-pull-cue,.voice-review,.attachment-chip,.file-drop-hint,.lan-sharing{
+  animation:row-in var(--motion-quick) var(--ease-out) backwards;
+}
+.task-error,.management-error,.profile-error,.wizard-error,.form-error,.pairing-result,.connection-sync-result,.management-empty,.tasks-empty{
+  animation:row-in var(--motion-fast) var(--ease-out) backwards;
+}
+
+/* Empty, loading and error states settle in rather than flashing. */
+.chat-empty-state,.conversation-loading{animation:nav-fade var(--motion-medium) var(--ease-out) backwards}
+
+/* Identity and summary rows are press targets like any other control. */
+.chat-identity-button,.task-card-summary,.bot-copy{
+  transition:scale var(--motion-fast) var(--ease-standard),opacity var(--motion-quick) var(--ease-standard);
+}
+.chat-identity-button:active{scale:.975}
+
+/* Status text changes state smoothly instead of snapping. */
+.status-pill,.task-title em,.tasks-stat,.connection-attention,.capability-counts,.response-stats{
+  transition:color var(--motion-quick) var(--ease-standard),
+             background-color var(--motion-quick) var(--ease-standard),
+             border-color var(--motion-quick) var(--ease-standard);
+}
+
+/* Chevrons rotate with real easing. */
+.disclosure,.turn,.profile-model-row svg,.task-card-actions svg,.task-detail-actions svg{
+  transition:transform var(--motion-quick) var(--ease-spring);
+}
+
+/* Task lists rise in sequence instead of all at once. */
+.task-section .task-card{animation:row-in var(--motion-quick) var(--ease-out) backwards}
+.task-section .task-card:nth-child(1){animation-delay:0ms}
+.task-section .task-card:nth-child(2){animation-delay:24ms}
+.task-section .task-card:nth-child(3){animation-delay:48ms}
+.task-section .task-card:nth-child(4){animation-delay:72ms}
+.task-section .task-card:nth-child(5){animation-delay:96ms}
+.task-section .task-card:nth-child(6){animation-delay:120ms}
+.task-section .task-card:nth-child(n+7){animation-delay:144ms}
+
+/* Capability rows follow the same rhythm as the roster. */
+.capability-list .capability-row{animation:row-in var(--motion-quick) var(--ease-out) backwards}
+.capability-list .capability-row:nth-child(1){animation-delay:0ms}
+.capability-list .capability-row:nth-child(2){animation-delay:22ms}
+.capability-list .capability-row:nth-child(3){animation-delay:44ms}
+.capability-list .capability-row:nth-child(4){animation-delay:66ms}
+.capability-list .capability-row:nth-child(5){animation-delay:88ms}
+.capability-list .capability-row:nth-child(n+6){animation-delay:110ms}
+
+/* Settings rows cascade the way a native list does. */
+.menu-list button{animation:row-in var(--motion-quick) var(--ease-out) backwards}
+.menu-list button:nth-child(1){animation-delay:20ms}
+.menu-list button:nth-child(2){animation-delay:44ms}
+.menu-list button:nth-child(3){animation-delay:68ms}
+.menu-list button:nth-child(4){animation-delay:92ms}
+.menu-list button:nth-child(n+5){animation-delay:116ms}
+
+/* Listening state breathes instead of sitting static. */
+.voice-bars{animation:nav-fade 1.4s var(--ease-standard) infinite alternate}
+.recording-composer{animation:row-in var(--motion-quick) var(--ease-out) backwards}

@@ -2427,6 +2427,96 @@
           "markdownDescription": "Denies the save command without any pre-configured scope."
         },
         {
+          "description": "Default permissions for the Hermes notifications plugin\n#### This default permission set includes:\n\n- `allow-ensurePermission`\n- `allow-permissionState`\n- `allow-notificationPermissionResult`\n- `allow-upsert`\n- `allow-finish`\n- `allow-clear`\n- `allow-clearAll`",
+          "type": "string",
+          "const": "hermes-notifications:default",
+          "markdownDescription": "Default permissions for the Hermes notifications plugin\n#### This default permission set includes:\n\n- `allow-ensurePermission`\n- `allow-permissionState`\n- `allow-notificationPermissionResult`\n- `allow-upsert`\n- `allow-finish`\n- `allow-clear`\n- `allow-clearAll`"
+        },
+        {
+          "description": "Enables the clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:allow-clear",
+          "markdownDescription": "Enables the clear command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the clearAll command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:allow-clearAll",
+          "markdownDescription": "Enables the clearAll command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the ensurePermission command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:allow-ensurePermission",
+          "markdownDescription": "Enables the ensurePermission command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the finish command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:allow-finish",
+          "markdownDescription": "Enables the finish command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the notificationPermissionResult command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:allow-notificationPermissionResult",
+          "markdownDescription": "Enables the notificationPermissionResult command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the permissionState command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:allow-permissionState",
+          "markdownDescription": "Enables the permissionState command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the upsert command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:allow-upsert",
+          "markdownDescription": "Enables the upsert command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:deny-clear",
+          "markdownDescription": "Denies the clear command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clearAll command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:deny-clearAll",
+          "markdownDescription": "Denies the clearAll command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ensurePermission command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:deny-ensurePermission",
+          "markdownDescription": "Denies the ensurePermission command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the finish command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:deny-finish",
+          "markdownDescription": "Denies the finish command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the notificationPermissionResult command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:deny-notificationPermissionResult",
+          "markdownDescription": "Denies the notificationPermissionResult command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the permissionState command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:deny-permissionState",
+          "markdownDescription": "Denies the permissionState command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the upsert command without any pre-configured scope.",
+          "type": "string",
+          "const": "hermes-notifications:deny-upsert",
+          "markdownDescription": "Denies the upsert command without any pre-configured scope."
+        },
+        {
           "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-get-passwords`\n- `allow-set-passwords`\n- `allow-delete-passwords`\n- `allow-password-exists`\n- `allow-export-passwords-plain`\n- `allow-import-passwords-plain`\n- `allow-export-passwords-encrypted`\n- `allow-import-passwords-encrypted`\n- `allow-ping`\n- `allow-initialize`\n- `allow-destroy`\n- `allow-save`\n- `allow-create-client`\n- `allow-load-client`\n- `allow-get-store-record`\n- `allow-save-store-record`\n- `allow-remove-store-record`\n- `allow-save-secret`\n- `allow-remove-secret`\n- `allow-execute-procedure`",
           "type": "string",
           "const": "keyring-store:default",

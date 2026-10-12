@@ -8,6 +8,15 @@
   to the Tailscale CGNAT range (100.64.0.0/10). It never opens port 9119 to the
   public internet and never prints passwords or gateway secrets.
 
+  This one `hermes serve` IS the whole phone-facing stack. Binding every
+  interface is what makes it require authentication, and because it is an
+  ordinary Hermes runtime it also carries the chats that are open on the Hermes
+  Desktop, through the session-attach relay. Do NOT add the dev-only forwarder
+  indirection here: the forwarder exists to steer the phone onto a runtime that
+  owns the sessions, and a runtime that cannot authenticate a remote client must
+  never be advertised to one (a Desktop-owned loopback backend is deliberately
+  exempt from the ticket gate and always reports auth_required=false).
+
   Run from an Administrator PowerShell window, or use setup-hermes-tailscale-gateway.cmd.
 #>
 [CmdletBinding()]

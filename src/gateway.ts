@@ -25,6 +25,17 @@ type Pending = {
   timer: number
 }
 
+/** A request the host sends to this client (clarify, approvals). */
+export type ServerRequest = {
+  id: number
+  method: string
+  params: GatewayPayload
+}
+
+export type ServerRequestReply =
+  | { result: unknown }
+  | { error: { code: number; message: string } }
+
 export class GatewayRpcError extends Error {
   constructor(
     readonly method: string,
@@ -34,6 +45,17 @@ export class GatewayRpcError extends Error {
   ) {
     super(message)
     this.name = 'GatewayRpcError'
+  }
+
+  /**
+   * Hermes allows exactly ONE live process to drive a session's turns, recorded in a
+   * per-profile lease registry. When another runtime (the Hermes Desktop's own local
+   * backend) holds that lease, the turn is refused with "This chat is open in another
+   * Hermes window/terminal". The transcript still reads fine - only sending is blocked -
+   * so the client must recognise this and explain it rather than showing a raw error.
+   */
+  get sessionHeldElsewhere() {
+    return /open in another Hermes window\/terminal/i.test(this.message)
   }
 
   get safeToResubmit() {
@@ -85,6 +107,7 @@ export class HermesGatewayClient {
   private readonly sessionListeners = new Map<string, Set<(event: GatewayEvent) => void>>()
   private readonly activeTurnCancels = new Map<string, () => void>()
   private globalListener?: (event: GatewayEvent) => void
+  private requestHandler?: (request: ServerRequest) => Promise<ServerRequestReply>
 
   constructor(
     private readonly urlFactory: () => Promise<string>,
@@ -93,6 +116,17 @@ export class HermesGatewayClient {
 
   setEventListener(listener?: (event: GatewayEvent) => void) {
     this.globalListener = listener
+  }
+
+  /**
+   * Register the handler for server-initiated requests (the `clarify` tool and
+   * the approval prompts are both server→client). A request carries an `id` *and*
+   * a `method`, which is what distinguishes it from a reply to one of our calls;
+   * before this existed such frames were dropped and the host waited out its
+   * clarify timeout.
+   */
+  setRequestHandler(handler?: (request: ServerRequest) => Promise<ServerRequestReply>) {
+    this.requestHandler = handler
   }
 
   async connect(): Promise<void> {
@@ -148,6 +182,14 @@ export class HermesGatewayClient {
         continue
       }
 
+      // A server→client request carries both an id and a method; a reply to one of
+      // our own calls carries an id and no method.
+      if (typeof frame.id === 'number' && typeof frame.method === 'string') {
+        const request: ServerRequest = { id: frame.id, method: frame.method, params: frame.params ?? {} }
+        void this.answerRequest(request)
+        continue
+      }
+
       if (typeof frame.id === 'number') {
         const pending = this.pending.get(frame.id)
         if (!pending) continue
@@ -157,6 +199,22 @@ export class HermesGatewayClient {
         else pending.resolve(frame.result)
       }
     }
+  }
+
+  /**
+   * Answer a server request. An unanswered request stalls the host's turn until
+   * its timeout, so an unhandled method is refused explicitly instead of ignored.
+   */
+  private async answerRequest(request: ServerRequest) {
+    const socket = this.socket
+    if (!socket || socket.readyState !== WebSocket.OPEN) return
+    let reply: ServerRequestReply
+    try {
+      reply = this.requestHandler ? await this.requestHandler(request) : { error: { code: -32601, message: `Method not found: ${request.method}` } }
+    } catch (reason) {
+      reply = { error: { code: -32603, message: reason instanceof Error ? reason.message : String(reason) } }
+    }
+    socket.send(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, ...reply })}\n`)
   }
 
   private handleClose(generation: number) {

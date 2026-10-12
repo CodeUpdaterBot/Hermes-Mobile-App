@@ -480,6 +480,8 @@ pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(any(target_os = "android", target_os = "ios"))]
     let builder = builder.plugin(tauri_plugin_stt::init());
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let builder = builder.plugin(tauri_plugin_hermes_notifications::init());
     builder
         .plugin(tauri_plugin_keyring_store::init())
         .plugin(tauri_plugin_dialog::init())

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight, Monitor, Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
 
 import { ChatView } from './components/ChatView'
 import { BotAvatar } from './components/BotAvatar'
@@ -7,15 +7,32 @@ import { BotAppearancePicker } from './components/BotAppearancePicker'
 import { BotProfileSheet } from './components/BotProfileSheet'
 import { TasksView } from './components/TasksView'
 import { ConnectionSettings } from './components/ConnectionSettings'
+import { ComputerPane } from './components/ComputerPane'
+import { BotRoutines } from './components/BotRoutines'
+import { BotCapabilities } from './components/BotCapabilities'
+import { NewGroupSheet } from './components/NewGroupSheet'
+import { GroupChat } from './components/GroupChat'
 import { onBackButtonPress } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { flushSync } from 'react-dom'
 import { buildAttachmentPrompt, attachmentSummary } from './attachment-routing'
 import { buildBotRows, resolveCanonicalSessionId } from './live-model'
+import { GatewayRpcError } from './gateway'
+import { groupKey, groupMembersFor, groupNamesOf, groupsFromProfiles, groupRoomId } from './groups'
+import { rememberRoomId } from './group-rooms'
 import { settleAssistantResponse, type SettledAssistantResponse as SettledAssistantState } from './settled-assistant'
 import { isActiveChatTurn } from './chat-turn'
 import { errorMessage, RequestEpoch, selectRestoredEndpoint } from './connection-state'
-import { connectAndSubmit, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
+import { navDirectionFor, setNavDirection } from './nav-direction'
+import { haptic } from './haptics'
+import { connectAndSubmit, createGroup, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, setProfileGroups, setServerRequestHandler, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
+import { reconcileMessages, TURN_SILENCE_MS } from './chat-reconcile'
+import { readWideLayout, saveWideLayout, WIDE_QUERY, type WideLayout } from './wide-layout'
+import { parseClarifyQuestions } from './clarify'
+import { readNotificationPreferences, type BotActivity, type BotStage } from './bot-notifications'
+import { createNotificationSync, DEFAULT_BOT_NOTIFICATION_COLOR } from './notification-service'
+import { rasterizeAvatarPng } from './avatar-raster'
+import { reasoningSnippet } from './activity-group'
 
 type Tab = 'bots' | 'sessions' | 'tasks'
 type DraftBot = { role: string; name: string; description: string; soul: string; model: string; provider: string; shape: string }
@@ -54,6 +71,10 @@ export default function App() {
   const sessionLoadRef = useRef(0)
   const [profileSheet, setProfileSheet] = useState(false)
   const [messages, setMessages] = useState<LiveMessage[]>([])
+  // Read by the silence watchdog, which must see the current transcript without depending on
+  // it — depending on it would restart the silence timer on every streamed token.
+  const messagesRef = useRef<LiveMessage[]>([])
+  messagesRef.current = messages
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeEndpoint, setActiveEndpoint] = useState(() => selectRestoredEndpoint(null, localStorage.getItem('hermes-mobile-active-endpoint'), 'http://127.0.0.1:9119'))
@@ -72,6 +93,9 @@ export default function App() {
   const [sending, setSending] = useState(false)
   const sendingRef = useRef(false)
   sendingRef.current = sending
+  // When the host last sent ANY event for the running turn. A stream that stops emitting is
+  // the only evidence the client has lost the turn, so the watchdog measures silence here.
+  const turnActivityRef = useRef(0)
   const [toolActivities, setToolActivities] = useState<ToolActivity[]>([])
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
@@ -89,9 +113,30 @@ export default function App() {
   const [rosterPullRefreshing, setRosterPullRefreshing] = useState(false)
   const rosterScrollRef = useRef<HTMLDivElement | null>(null)
   const rosterPullStartRef = useRef<number | null>(null)
+  // A group chat is a screen of its own, not a mode of the Bot chat: it renders in the
+  // same pane, so it has to be a first-class stop for Android Back and the edge-swipe
+  // gesture (both walked past it before, which is why a group could not be swiped out of).
+  const [openGroupName, setOpenGroupName] = useState<string | null>(null)
 
-  const navigationRef = useRef({ selected: false, profileSheet: false, settings: false, createOpen: false, tab: 'bots' as Tab })
-  navigationRef.current = { selected: Boolean(selected), profileSheet, settings, createOpen, tab }
+  const navigationRef = useRef({ selected: false, profileSheet: false, settings: false, createOpen: false, group: false, tab: 'bots' as Tab })
+  navigationRef.current = {
+    selected: Boolean(selected), profileSheet, settings, createOpen,
+    group: Boolean(openGroupName), tab,
+  }
+
+  // Screen depth drives directional transitions: moving deeper pushes in,
+  // coming back pops in. Layout effect so the attribute is written before the
+  // browser paints the newly mounted screen.
+  const screenDepth = createOpen || settings ? 1
+    : selected ? (profileSheet ? 2 : 1)
+    : openGroupName ? 1
+    : tab === 'tasks' ? 1
+    : 0
+  const previousDepthRef = useRef(0)
+  useLayoutEffect(() => {
+    setNavDirection(navDirectionFor(previousDepthRef.current, screenDepth))
+    previousDepthRef.current = screenDepth
+  }, [screenDepth])
 
   useEffect(() => {
     let disposed = false
@@ -103,6 +148,9 @@ export default function App() {
       if (backEvent.defaultPrevented) return true
       const navigation = navigationRef.current
       if (navigation.profileSheet) { setProfileSheet(false); return true }
+      // The group screen sits above the Bot chat: closing it must come first, or Back
+      // leaves the group mounted and the next press walks past it entirely.
+      if (navigation.group) { setOpenGroupName(null); return true }
       if (navigation.selected) { setSelected(null); return true }
       if (navigation.settings) { setSettings(false); return true }
       if (navigation.createOpen) { setCreateOpen(false); return true }
@@ -122,6 +170,12 @@ export default function App() {
     document.documentElement.dataset.theme = theme
     localStorage.setItem('hermes-mobile-theme', theme)
   }, [theme])
+
+  // A failure the user cannot see coming gets a distinct tactile warning.
+  useEffect(() => {
+    if (error) haptic('warning')
+  }, [error])
+
   const activateEndpoint = (endpoint: string) => {
     const normalized = endpoint.replace(/\/$/, '')
     activeEndpointRef.current = normalized
@@ -213,6 +267,28 @@ export default function App() {
     } satisfies LiveSession : null,
   })).filter(row => `${row.profile.name} ${row.profile.display_name || ''} ${row.session?.preview || ''}`.toLowerCase().includes(query.toLowerCase())), [profiles, query])
 
+  // Group chats are derived from each Bot's profile metadata, so the roster the app
+  // already loads is the authoritative list — no extra RPC round trip, and no
+  // separate group record that can drift from its members.
+  const groups = useMemo(() => groupsFromProfiles(profiles), [profiles])
+  const visibleGroups = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return needle ? groups.filter(group => group.name.toLowerCase().includes(needle)) : groups
+  }, [groups, query])
+
+  // Groups sit in the SAME recency-ordered list as Bot chats — a group is just
+  // another conversation. A room carries no activity of its own here, so it borrows
+  // its most recently active member's, which is the honest proxy available
+  // client-side and needs no extra round trip.
+  const rosterEntries = useMemo(() => {
+    const activityOf = (members: string[]) => rows.reduce(
+      (latest, row) => members.includes(row.profile.name) ? Math.max(latest, row.session?.last_active || 0) : latest, 0)
+    return [
+      ...visibleGroups.map(group => ({ kind: 'group' as const, key: `group:${group.name}`, group, lastActive: activityOf(group.members) })),
+      ...rows.map(({ profile, session }) => ({ kind: 'bot' as const, key: profile.name, profile, session, lastActive: session?.last_active || 0 })),
+    ].sort((a, b) => b.lastActive - a.lastActive)
+  }, [rows, visibleGroups])
+
   const visibleSessions = useMemo(() => sessions.filter(session => `${session.title} ${session.profile} ${session.preview}`.toLowerCase().includes(query.toLowerCase())), [sessions, query])
 
   const openSession = useCallback((session: LiveSession, latestUsage?: LiveUsage): Promise<void> => {
@@ -270,8 +346,11 @@ export default function App() {
     setToolActivities([])
     setMessages(items => [...items, ...(priorAssistantMessage ? [priorAssistantMessage] : []), localUserMessage])
     try {
+      turnActivityRef.current = Date.now()
       await connectAndSubmit(turnSession.id, turnSession.profile, prompt, (type, payload) => {
         if (!isCurrentTurn()) return
+        // Any event — including a tool tick — proves the turn is still alive on the host.
+        turnActivityRef.current = Date.now()
         if (type === 'message.delta') {
           finalText += String(payload.text || '')
           setStreaming(finalText)
@@ -303,7 +382,16 @@ export default function App() {
       await refresh()
       return true
     } catch (reason) {
-      if (isCurrentTurn()) setError(reason instanceof Error ? reason.message : 'Could not send to Hermes.')
+      if (isCurrentTurn()) {
+        // A held lease is not a failure of this app. Hermes allows one live process per
+        // session, so a chat the Desktop is holding cannot be driven from this device -
+        // its transcript still reads, only sending is refused. Explain that and name the
+        // two real options, instead of echoing the raw refusal at the user.
+        const held = reason instanceof GatewayRpcError && reason.sessionHeldElsewhere
+        setError(held
+          ? 'This chat is open in another Hermes window, so it cannot take a message from this device. Close it there to continue here, or start a new chat with this Bot.'
+          : errorMessage(reason, 'Could not send to Hermes.'))
+      }
       return false
     } finally {
       if (isCurrentTurn()) {
@@ -322,6 +410,177 @@ export default function App() {
 
   const submitVoice = useCallback((text: string) => submit([], text), [submit])
 
+  // Keep the lock screen in step with a running turn. Only the conversation this
+  // client has resumed can report progress: the gateway's per-turn events are
+  // session-scoped, and its global `sessions.changed` is a bare "refetch the list"
+  // signal that carries no progress at all.
+  const notificationSync = useRef(createNotificationSync())
+  useEffect(() => {
+    const preferences = readNotificationPreferences()
+    const botProfile = selected ? profiles.find(profile => profile.name === selected.profile) : undefined
+    if (!selected || !(sending || toolActivities.length)) {
+      void notificationSync.current.sync([], preferences, new Date().getHours())
+      return
+    }
+
+    const activeTool = toolActivities[toolActivities.length - 1]
+    const thinkingStep = messages[messages.length - 1]?.role === 'assistant' ? messages[messages.length - 1].reasoning : null
+    const stage: BotStage = activeTool ? 'tools' : streaming ? 'writing' : 'thinking'
+    const detail = activeTool
+      ? activeTool.name
+      : streaming
+        ? 'Writing a reply'
+        : thinkingStep ? reasoningSnippet(thinkingStep) || 'Thinking' : 'Thinking'
+
+    let cancelled = false
+    void (async () => {
+      const meta = botProfile?.ui_meta?.['hermes-bots']
+      // The Bot's own avatar, so several working Bots are distinguishable at a glance.
+      const avatar = await rasterizeAvatarPng(selected.profile, meta?.shape, meta?.color)
+      if (cancelled) return
+      const active: BotActivity[] = [{
+        key: `${selected.profile}::${selected.id}`,
+        bot: botProfile?.display_name || titleize(selected.profile),
+        profile: selected.profile,
+        detail,
+        stage,
+        stepsDone: toolActivities.filter(item => item.status === 'done').length,
+        // No todo total is published yet, so the bar is a coarse phase estimate.
+        stepsTotal: null,
+        running: sending,
+        failed: toolActivities.some(item => item.status === 'failed'),
+        color: DEFAULT_BOT_NOTIFICATION_COLOR,
+        avatar,
+      }]
+      await notificationSync.current.sync(active, preferences, new Date().getHours())
+    })()
+    return () => { cancelled = true }
+  }, [selected, sending, streaming, toolActivities, profiles, messages])
+
+  // A running turn reaches this client only as a stream of host events, and that stream can
+  // stop without any error being raised: a socket goes half-open over a network, or a
+  // reconnect clears this session's listeners. The host still finishes the reply, so the app
+  // is left showing a bubble that stopped moving and the finished text is found only by
+  // refreshing. While a turn is in flight, watch for silence and adopt the host's transcript
+  // once it has moved on without us — the reply then appears on its own.
+  useEffect(() => {
+    if (!sending || !selected) return
+    const sessionId = selected.id
+    const profile = selected.profile
+    let reading = false
+    const timer = window.setInterval(() => {
+      if (reading || Date.now() - turnActivityRef.current < TURN_SILENCE_MS) return
+      reading = true
+      void (async () => {
+        try {
+          const loaded = await loadMessages(sessionId, profile)
+          if (selectedRef.current?.id !== sessionId) return
+          const { messages: next, settled } = reconcileMessages(messagesRef.current, loaded)
+          if (!settled) return
+          // The host has the finished reply. Show it, stop pretending this client is still
+          // streaming, and retire the in-flight turn so its late result cannot overwrite this.
+          chatTurnGenerationRef.current += 1
+          setMessages(next)
+          setSettledAssistant(null)
+          setStreaming('')
+          setToolActivities([])
+          setSending(false)
+          turnActivityRef.current = Date.now()
+          void refresh()
+        } catch { /* the next tick tries again */ } finally { reading = false }
+      })()
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [sending, selected, refresh])
+
+  // Wide screens (tablet landscape, unfolded foldables) get the three-column
+  // workspace. Narrow phones keep the single-surface flow untouched.
+  const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia(WIDE_QUERY).matches)
+  // The user's own column layout — dragged widths and collapsed columns — restored across
+  // launches. The default hides the right column, so the conversation gets the space until the
+  // pane is asked for; a stored choice always beats that default.
+  const [layout, setLayout] = useState<WideLayout>(() => readWideLayout())
+  const { railCollapsed, contextCollapsed, railWidth, contextWidth } = layout
+  const updateLayout = useCallback((patch: Partial<WideLayout>) => {
+    setLayout(current => {
+      const next = { ...current, ...patch }
+      saveWideLayout(next)
+      return next
+    })
+  }, [])
+  const [newGroupOpen, setNewGroupOpen] = useState(false)
+  const [groupBusy, setGroupBusy] = useState(false)
+  const [groupError, setGroupError] = useState('')
+  const [computerOpen, setComputerOpen] = useState(true)
+  // Folding a phone changes the viewport, and a media-query listener alone is too late for it:
+  // on Android WebView that event waits for the resize to settle, so the unfolded layout
+  // arrives after the user is already looking at the narrow one. Every signal that can
+  // accompany or precede the new size is subscribed, and each one re-reads the CURRENT width
+  // instead of trusting the event payload — whichever fires first wins.
+  useEffect(() => {
+    const read = () => {
+      const matched = window.matchMedia(WIDE_QUERY).matches
+      setWide(current => (current === matched ? current : matched))
+    }
+    const query = window.matchMedia(WIDE_QUERY)
+    query.addEventListener('change', read)
+    window.addEventListener('resize', read)
+    window.addEventListener('orientationchange', read)
+    const viewport = window.visualViewport
+    viewport?.addEventListener('resize', read)
+    const orientation = window.screen?.orientation
+    orientation?.addEventListener('change', read)
+    // A WebView can resize the root element without dispatching a window resize first.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(read)
+    observer?.observe(document.documentElement)
+    read()
+    return () => {
+      query.removeEventListener('change', read)
+      window.removeEventListener('resize', read)
+      window.removeEventListener('orientationchange', read)
+      viewport?.removeEventListener('resize', read)
+      orientation?.removeEventListener('change', read)
+      observer?.disconnect()
+    }
+  }, [])
+
+  // Widening while on the Bots list must not show a second copy of the roster in
+  // the middle pane. Open the most recently active Bot Chat instead, so the
+  // tri-fold always has a real conversation in its centre.
+  // This reads `rows` (not buildBotRows) so the Bot it opens is exactly the top row
+  // of the rail — and so the session carries its resolved lineage id.
+  const mostRecentSession = rows[0]?.session ?? null
+  useEffect(() => {
+    if (!wide || selected || settings || createOpen || profileSheet) return
+    if (!mostRecentSession) return
+    void openSession(mostRecentSession)
+  }, [wide, selected, settings, createOpen, profileSheet, mostRecentSession, openSession])
+
+  // The host asks the user questions mid-turn (`clarify`). Answering over the same
+  // socket is what releases its turn: an ignored request stalls until the host's
+  // own clarify timeout, so anything unanswerable is refused immediately instead.
+  const clarifyResolverRef = useRef<((reply: { result: unknown }) => void) | null>(null)
+  const [clarifyParams, setClarifyParams] = useState<unknown | null>(null)
+  useEffect(() => {
+    setServerRequestHandler(request => {
+      if (request.method !== 'clarify') {
+        return Promise.resolve({ error: { code: -32601, message: `Method not found: ${request.method}` } })
+      }
+      if (!parseClarifyQuestions(request.params).length) return Promise.resolve({ result: {} })
+      return new Promise<{ result: unknown }>(resolve => {
+        clarifyResolverRef.current = resolve
+        setClarifyParams(request.params)
+      })
+    })
+    return () => setServerRequestHandler(undefined)
+  }, [])
+
+  const answerClarify = useCallback((result: unknown) => {
+    clarifyResolverRef.current?.({ result })
+    clarifyResolverRef.current = null
+    setClarifyParams(null)
+  }, [])
+
   const handleSessionModelChange = useCallback((model: string) => {
     setSelected(current => current ? { ...current, model } : current)
   }, [])
@@ -333,6 +592,7 @@ export default function App() {
       await createProfile(botDraft)
       setCreateOpen(false)
       setCreateStep(0)
+      haptic('success')
       const data = await refresh()
       const createdProfile = data?.profiles.find(profile => profile.name === botDraft.name)
       const canonical = createdProfile?.canonical_session
@@ -351,6 +611,12 @@ export default function App() {
       setError(reason instanceof Error ? reason.message : 'Could not create this Bot.')
     } finally { setCreating(false) }
   }
+
+  // A native tab switch starts the new list at the top instead of keeping the
+  // previous tab's scroll offset.
+  useEffect(() => {
+    rosterScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' })
+  }, [tab])
 
   const rosterPullActive = rosterPullDistance > 8 || rosterPullRefreshing
   const rosterTouchStart = (event: React.TouchEvent<HTMLElement>) => {
@@ -371,13 +637,15 @@ export default function App() {
     if (shouldRefresh) void pullRefreshRoster()
   }
 
-  if (createOpen) return <CreateWizard step={createStep} setStep={setCreateStep} draft={botDraft} setDraft={setBotDraft} creating={creating} error={error} close={() => { setCreateOpen(false); setCreateStep(0); setError('') }} finish={() => void finishCreate()}/>
-  if (settings) return <ConnectionSettings profiles={profiles.length} sessions={sessions.length} connected={connectionStatus === 'connected'} endpoint={activeEndpoint !== 'http://127.0.0.1:9119' ? activeEndpoint : undefined} theme={theme} setTheme={setTheme} close={() => setSettings(false)} refresh={() => refresh()} onPairingBusy={setPairingBusyState} onPaired={async endpoint => { const normalized = activateEndpoint(endpoint); const data = await refresh(normalized, true); if (!data) throw new Error(lastConnectionErrorRef.current || 'Signed in, but authenticated Hermes REST or live WebSocket verification failed.'); localStorage.setItem('hermes-mobile-active-endpoint', normalized) }}/>
-  if (selected && profileSheet) return <BotProfileSheet profile={profiles.find(profile => profile.name === selected.profile)} session={selected} onClose={() => setProfileSheet(false)} onUpdated={() => void refresh()}/>
-  if (selected) return <ChatView session={selected} conversationLoading={conversationLoading} messages={messages} settledAssistant={settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null} profiles={profiles} streaming={streaming} sending={sending} toolActivities={toolActivities} error={error} back={() => setSelected(null)} refresh={() => void openSession(selected)} openProfile={() => setProfileSheet(true)} onSessionModelChange={handleSessionModelChange} submit={submit} submitVoice={submitVoice} stop={stop}/>
-  if (tab === 'tasks') return <TasksView back={() => setTab('bots')} profiles={profiles}/>
+  // Every screen is built as a value so the wide shell can host ANY of them in its
+  // middle pane, instead of the tri-fold collapsing back to a single column.
+  const wizardView = <CreateWizard step={createStep} setStep={setCreateStep} draft={botDraft} setDraft={setBotDraft} creating={creating} error={error} close={() => { setCreateOpen(false); setCreateStep(0); setError('') }} finish={() => void finishCreate()}/>
+  const settingsView = <ConnectionSettings profiles={profiles.length} botProfiles={profiles} sessions={sessions.length} connected={connectionStatus === 'connected'} endpoint={activeEndpoint !== 'http://127.0.0.1:9119' ? activeEndpoint : undefined} theme={theme} setTheme={setTheme} close={() => setSettings(false)} refresh={() => refresh()} onPairingBusy={setPairingBusyState} onPaired={async endpoint => { const normalized = activateEndpoint(endpoint); const data = await refresh(normalized, true); if (!data) throw new Error(lastConnectionErrorRef.current || 'Signed in, but authenticated Hermes REST or live WebSocket verification failed.'); localStorage.setItem('hermes-mobile-active-endpoint', normalized) }}/>
+  const profileView = selected && profileSheet ? <BotProfileSheet profile={profiles.find(profile => profile.name === selected.profile)} session={selected} onClose={() => setProfileSheet(false)} onUpdated={() => void refresh()}/> : null
+  const chatView = selected ? <ChatView session={selected} wide={wide} conversationLoading={conversationLoading} messages={messages} settledAssistant={settledAssistant?.sessionId === selected.id && settledAssistant.profile === selected.profile ? settledAssistant : null} profiles={profiles} streaming={streaming} sending={sending} toolActivities={toolActivities} error={error} back={() => setSelected(null)} refresh={() => void openSession(selected)} openProfile={() => setProfileSheet(true)} onSessionModelChange={handleSessionModelChange} submit={submit} submitVoice={submitVoice} stop={stop} clarify={clarifyParams} onClarifyAnswer={answerClarify}/> : null
+  const tasksView = <TasksView back={() => setTab('bots')} profiles={profiles}/>
 
-  return <main className="app roster-shell">
+  const homeView = <main className="app roster-shell">
     <div className="roster-pinned">
       <header className="roster-head"><div><h1>{tab === 'bots' ? 'Bots' : 'Sessions'}</h1><span className={`connection ${connectionStatus === 'disconnected' ? 'offline' : connectionStatus === 'connected' ? 'online' : 'checking'}`} title={connectionStatus === 'disconnected' ? 'No Hermes detected. Start Hermes Desktop, then retry.' : connectionStatus === 'connected' ? 'Connected to Hermes Desktop' : 'Checking for Hermes Desktop…'} aria-label={connectionStatus === 'disconnected' ? 'Hermes Desktop unavailable' : connectionStatus === 'connected' ? 'Connected to Hermes Desktop' : 'Checking for Hermes Desktop'}><i className="connection-dot"/><span>{connectionStatus === 'disconnected' ? 'Hermes unavailable' : connectionStatus === 'connected' ? 'Hermes Desktop' : 'Checking…'}</span></span></div><div className="header-actions"><button className="icon-button" aria-label="Search" onClick={() => setSearching(value => !value)}><Search size={18}/></button><button className="icon-button" aria-label="Settings" onClick={() => setSettings(true)}><SettingsIcon size={18}/></button></div></header>
       {searching && <div className="search"><Search size={16}/><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder={tab === 'bots' ? 'Search bots and group chats…' : 'Search sessions…'}/><button onClick={() => { setQuery(''); setSearching(false) }}><X size={16}/></button></div>}
@@ -386,10 +654,139 @@ export default function App() {
     <div className="roster-list-scroll" ref={rosterScrollRef} onTouchStart={rosterTouchStart} onTouchMove={rosterTouchMove} onTouchEnd={rosterTouchEnd}>
       {rosterPullActive && <div className="roster-pull-cue" style={{ height: `${rosterPullRefreshing ? 46 : rosterPullDistance}px` }}><RefreshCw size={15} className={rosterPullRefreshing ? 'pull-refresh-spinner' : ''}/><span>{rosterPullRefreshing ? 'Refreshing…' : rosterPullDistance >= 56 ? 'Release to refresh' : 'Pull to refresh'}</span></div>}
       {error && <Notice message={error} retry={() => void refresh()}/>}
-      {loading && !profiles.length ? <Skeleton/> : tab === 'bots' ? <section className="bot-list">{rows.map(({ profile, session }, index) => <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={profile.name} disabled={!session} onClick={() => session && void openSession(session)}><BotAvatar profile={profile} fallbackName={profile.name}/><span className="bot-copy"><b>{profile.display_name || titleize(profile.name)}</b><small>{session?.preview || profile.description || 'No messages yet'} </small></span><span className="meta">{ago(session?.last_active)}{session && <i className={session.unread ? 'unread' : ''}/>}</span></button>)}</section> : <section className="bot-list">{visibleSessions.map((session, index) => <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={`${session.profile}:${session.id}`} onClick={() => void openSession(session)}><BotAvatar profile={profiles.find(profile => profile.name === session.profile)} fallbackName={session.profile} variant="session"/><span className="bot-copy"><b>{session.title || 'Untitled session'}</b><small>{titleize(session.profile)} · {session.preview}</small></span><span className="meta">{ago(session.last_active)}</span></button>)}</section>}
+      {loading && !profiles.length ? <Skeleton/> : tab === 'bots' ? <section className="bot-list">{rosterEntries.map((entry, index) => entry.kind === 'group' ? <button className="bot-row group-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={entry.key} onClick={() => setOpenGroupName(entry.group.name)}><span className="group-glyph"><Users size={17}/></span><span className="bot-copy"><b>{entry.group.name}</b><small>{entry.group.members.length} bots · {entry.group.members.map(name => titleize(name)).join(', ')}</small></span><span className="meta">{entry.lastActive ? ago(entry.lastActive) : ''}</span></button> : <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={entry.key} disabled={!entry.session} onClick={() => entry.session && void openSession(entry.session)}><BotAvatar profile={entry.profile} fallbackName={entry.profile.name}/><span className="bot-copy"><b>{entry.profile.display_name || titleize(entry.profile.name)}</b><small>{entry.session?.preview || entry.profile.description || 'No messages yet'} </small></span><span className="meta">{ago(entry.session?.last_active)}{entry.session && <i className={entry.session.unread ? 'unread' : ''}/>}</span></button>)}</section> : <section className="bot-list">{visibleSessions.map((session, index) => <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={`${session.profile}:${session.id}`} onClick={() => void openSession(session)}><BotAvatar profile={profiles.find(profile => profile.name === session.profile)} fallbackName={session.profile} variant="session"/><span className="bot-copy"><b>{session.title || 'Untitled session'}</b><small>{titleize(session.profile)} · {session.preview}</small></span><span className="meta">{ago(session.last_active)}</span></button>)}</section>}
     </div>
-    <footer className="roster-actions">{tab === 'bots' ? <><button className="secondary" disabled title="Group-room transport is not yet enabled"><Users size={16}/> New group</button><button className="primary" onClick={() => setCreateOpen(true)}><Plus size={16}/> New Bot</button></> : <button className="primary wide" onClick={() => setTab('bots')}>Back to Bots</button>}</footer>
+    <footer className="roster-actions">{tab === 'bots' ? <><button className="secondary" onClick={() => { setGroupError(''); setNewGroupOpen(true) }}><Users size={16}/> New group</button><button className="primary" onClick={() => setCreateOpen(true)}><Plus size={16}/> New Bot</button></> : <button className="primary wide" onClick={() => setTab('bots')}>Back to Bots</button>}</footer>
   </main>
+
+  // Membership is written first: it is what makes the group exist for every client
+  // and it does not need a room driver. Opening the room does, so a gateway without
+  // one still ends up with a usable, visible group rather than a silent failure.
+  async function createBotGroup(name: string, members: LiveProfile[]) {
+    setGroupBusy(true); setError('')
+    try {
+      for (const member of members) {
+        const existing = groupNamesOf(member)
+        // Case-insensitive, because the sheet suggests a lowercased name while the
+        // metadata may already hold the group under the user's original casing —
+        // writing again would store the same group twice and split its room.
+        const known = existing.some(held => held.toLowerCase() === name.trim().toLowerCase())
+        if (!known) await setProfileGroups(member, [...existing, name])
+      }
+      let roomWarning = ''
+      try {
+        const room = await createGroup(members[0].name, {
+          roomId: groupRoomId(name), name,
+          // groups.create requires member_id + profile + handle on every member and
+          // rejects anything else, so the rows come from one shared builder.
+          members: groupMembersFor(members),
+        })
+        // Pin the id the gateway actually holds: the name-derived id is what makes
+        // creation converge, but only the id that comes back is what a read can
+        // address exactly.
+        if (room?.room_id) rememberRoomId(name, room.room_id)
+      } catch (reason) {
+        roomWarning = errorMessage(reason, 'The gateway could not open this room.')
+      }
+      await refresh()
+      setNewGroupOpen(false)
+      // Drop straight into the room. Creating a group is almost always followed by
+      // wanting to talk to its members, so open it exactly as tapping its row would,
+      // rather than leaving the user on the roster to find it themselves.
+      setSelected(null)
+      setOpenGroupName(name)
+      if (roomWarning) setError(`Group “${name}” was saved, but the gateway could not open its room: ${roomWarning}`)
+    } catch (reason) {
+      // Never fall back to a generic string: a non-Error rejection previously hid the
+      // real cause behind "Could not create this group."
+      setGroupError(`Could not create this group: ${errorMessage(reason, 'unknown error')}`)
+    } finally { setGroupBusy(false) }
+  }
+
+  const newGroupView = <NewGroupSheet profiles={profiles} busy={groupBusy} error={groupError} onClose={() => { setNewGroupOpen(false); setGroupError('') }} onCreate={(name, members) => void createBotGroup(name, members)}/>
+
+  // A group chat is a conversation like any other: it opens in the same slot, and
+  // inside the wide shell it renders in the middle pane rather than replacing it.
+  // Case-insensitive: the name written at creation and the spelling the roster settled
+  // on can differ only in case, and an exact match would then open nothing at all.
+  const openGroup = openGroupName ? groups.find(group => groupKey(group.name) === groupKey(openGroupName)) : undefined
+  const groupView = openGroup ? <GroupChat group={openGroup} profiles={profiles} wide={wide} back={() => setOpenGroupName(null)}/> : null
+
+  const screen = newGroupOpen ? newGroupView : createOpen ? wizardView : settings ? settingsView : profileView ?? groupView ?? chatView ?? (tab === 'tasks' ? tasksView : homeView)
+
+  if (!wide) return screen
+
+  const activeProfile = selected ? profiles.find(profile => profile.name === selected.profile) : undefined
+  const activeBotName = activeProfile?.display_name || (selected?.title && selected.title !== 'Bot Chat' ? selected.title : selected ? titleize(selected.profile) : '')
+
+  // A divider both drags and toggles. Dragging past a few pixels resizes the column to
+  // wherever the finger/pointer ends; releasing without dragging toggles it, so the old
+  // click behaviour survives and no gesture has to be discovered. The listener is bound
+  // to the divider itself once the pointer is captured, so it cannot leak past release.
+  function dragColumn(kind: 'rail' | 'context', event: { clientX: number; pointerId: number; currentTarget: HTMLButtonElement }) {
+    const startX = event.clientX
+    const startWidth = (kind === 'rail' ? railWidth : contextWidth) ?? 296
+    const handle = event.currentTarget
+    handle.setPointerCapture(event.pointerId)
+    let dragged = false
+    const onMove = (move: PointerEvent) => {
+      const delta = move.clientX - startX
+      if (!dragged && Math.abs(delta) < 4) return
+      dragged = true
+      // The right column grows leftwards, so its delta is inverted.
+      const next = kind === 'rail' ? startWidth + delta : startWidth - delta
+      const clamped = Math.max(180, Math.min(460, next))
+      if (kind === 'rail') updateLayout({ railWidth: clamped }); else updateLayout({ contextWidth: clamped })
+    }
+    const onUp = () => {
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onUp)
+      handle.removeEventListener('pointercancel', onUp)
+      if (dragged) return
+      if (kind === 'rail') updateLayout({ railCollapsed: !railCollapsed }); else updateLayout({ contextCollapsed: !contextCollapsed })
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onUp)
+    handle.addEventListener('pointercancel', onUp)
+  }
+
+  // The tri-fold workspace. Every screen renders in the middle pane, so opening a
+  // Bot's settings no longer collapses the layout back to a single column.
+  return <div className={`wide-shell${railCollapsed ? ' rail-collapsed' : ''}${contextCollapsed ? ' context-collapsed' : ''}`}
+    style={railWidth === null && contextWidth === null ? undefined : {
+      gridTemplateColumns: `${railCollapsed ? 0 : railWidth ?? 296}px 7px minmax(340px,1fr) 7px ${contextCollapsed ? 0 : contextWidth ?? 296}px`,
+    }}>
+    {railCollapsed && <button className="wide-rail-reveal" onClick={() => updateLayout({ railCollapsed: false })} aria-label="Show Bots column"><ChevronRight size={13}/></button>}
+    {contextCollapsed && <button className="wide-context-reveal" onClick={() => updateLayout({ contextCollapsed: false })} aria-label="Show computer column"><ChevronLeft size={13}/></button>}
+
+    <aside className="wide-rail" aria-label="Bots">
+      <header className="wide-rail-head">
+        <b>Bots</b>
+        <span className="wide-rail-actions">
+          <button className="round-control" onClick={() => setSearching(value => !value)} aria-label="Search Bots"><Search size={16}/></button>
+          <button className="round-control" onClick={() => setSettings(true)} aria-label="Settings"><SettingsIcon size={16}/></button>
+        </span>
+      </header>
+      {searching && <div className="wide-rail-search"><Search size={15}/><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="Search bots…"/><button onClick={() => { setQuery(''); setSearching(false) }} aria-label="Clear search"><X size={15}/></button></div>}
+      <section className="bot-list wide-rail-list">{rows.map(({ profile, session }, index) => <button className={`bot-row${session && session.id === selected?.id ? ' selected' : ''}`} style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={profile.name} disabled={!session} onClick={() => session && void openSession(session)}><BotAvatar profile={profile} fallbackName={profile.name}/><span className="bot-copy"><b>{profile.display_name || titleize(profile.name)}</b><small>{session?.preview || profile.description || 'No messages yet'}</small></span><span className="meta">{ago(session?.last_active)}{session && <i className={session.unread ? 'unread' : ''}/>}</span></button>)}</section>
+    </aside>
+
+    <button className="wide-divider" onPointerDown={event => dragColumn('rail', event)} aria-label="Drag to resize the Bots column, or click to toggle it" title="Drag to resize · click to toggle"/>
+
+    <div className="wide-main">{screen}</div>
+
+    <button className="wide-divider" onPointerDown={event => dragColumn('context', event)} aria-label="Drag to resize the computer column, or click to toggle it" title="Drag to resize · click to toggle"/>
+
+    <aside className="wide-context" aria-label="Bot computer and routines">
+      {selected ? <>
+        {computerOpen
+          ? <ComputerPane profile={selected.profile} botName={activeBotName} onClose={() => setComputerOpen(false)}/>
+          : <div className="computer-pane"><button className="secondary wide" onClick={() => setComputerOpen(true)}><Monitor size={15}/> Show computer</button></div>}
+        <BotRoutines profile={selected.profile} onNewRoutine={() => { setSelected(null); setTab('tasks') }}/>
+        <BotCapabilities profileName={selected.profile} onOpenSettings={() => setProfileSheet(true)} onUpdated={() => void refresh()}/>
+      </> : <p className="wide-context-empty">Open a Bot to see its computer and routines.</p>}
+    </aside>
+  </div>
 }
 
 function Notice({ message, retry }: { message: string; retry: () => void }) {
@@ -420,7 +817,7 @@ function CreateWizard({ step, setStep, draft, setDraft, creating, error, close, 
     return () => window.removeEventListener('hermes-mobile-back', onMobileBack)
   }, [close, setStep, step])
   const pickRole = (role: string) => { const [name, description] = roles[role]; setDraft(current => ({ ...current, role, name, description })) }
-  return <main className="app wizard"><header><button className="icon-button" onClick={close}><X size={18}/></button><div className="progress">{[0, 1, 2, 3].map(item => <i className={item === step ? 'current' : ''} key={item}/>)}</div></header><section><h1>{titles[step]}</h1>{step === 0 && <><p>Name it and give it a job.</p><div className="chips">{Object.keys(roles).map(role => <button className={draft.role === role ? 'selected' : ''} onClick={() => pickRole(role)} key={role}>{role}</button>)}</div><Field label="NAME"><input value={draft.name} onChange={event => setDraft(current => ({ ...current, name: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}/><small>Lowercase profile handle, for example research-rabbit.</small></Field><Field label="WHAT SHOULD IT DO?"><input value={draft.description} onChange={event => setDraft(current => ({ ...current, description: event.target.value }))}/></Field></>}{step === 1 && <><p>Optional — shape how it thinks and talks.</p><div className="explain">This becomes the Bot’s real SOUL.md and loads into every conversation.</div><Field label="SOUL"><textarea value={draft.soul} onChange={event => setDraft(current => ({ ...current, soul: event.target.value }))}/></Field></>}{step === 2 && <><p>Optional — pin a model, or use the Hermes default.</p><button className={!draft.model ? 'model-option selected' : 'model-option'} onClick={() => setDraft(current => ({ ...current, model: '', provider: '' }))}><b>Use Hermes default</b><small>Inherits this PC’s provider and model.</small></button><button className={draft.model === 'gpt-5.6-sol' ? 'model-option selected' : 'model-option'} onClick={() => setDraft(current => ({ ...current, model: 'gpt-5.6-sol', provider: 'openai-api' }))}>openai-api/gpt-5.6-sol</button></>}{step === 3 && <><p>Choose an avatar that remains identical in Hermes Desktop and Mobile.</p><BotAppearancePicker name={draft.name} shape={draft.shape} onShape={shape => setDraft(current => ({ ...current, shape }))}/></>}{error && <p className="wizard-error">{error}</p>}</section><footer><button className="secondary" onClick={() => step ? setStep(step - 1) : close()}>{step ? 'Back' : 'Cancel'}</button><button className="primary" disabled={creating || (step === 0 && !draft.name)} onClick={() => step < 3 ? setStep(step + 1) : finish()}>{creating ? 'Creating…' : step < 3 ? 'Continue' : 'Create Bot'}</button></footer></main>
+  return <main className="app wizard"><header><button className="icon-button" onClick={close}><X size={18}/></button><div className="progress">{[0, 1, 2, 3].map(item => <i className={item === step ? 'current' : ''} key={item}/>)}</div></header><section key={step}><h1>{titles[step]}</h1>{step === 0 && <><p>Name it and give it a job.</p><div className="chips">{Object.keys(roles).map(role => <button className={draft.role === role ? 'selected' : ''} onClick={() => pickRole(role)} key={role}>{role}</button>)}</div><Field label="NAME"><input value={draft.name} onChange={event => setDraft(current => ({ ...current, name: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}/><small>Lowercase profile handle, for example research-rabbit.</small></Field><Field label="WHAT SHOULD IT DO?"><input value={draft.description} onChange={event => setDraft(current => ({ ...current, description: event.target.value }))}/></Field></>}{step === 1 && <><p>Optional — shape how it thinks and talks.</p><div className="explain">This becomes the Bot’s real SOUL.md and loads into every conversation.</div><Field label="SOUL"><textarea value={draft.soul} onChange={event => setDraft(current => ({ ...current, soul: event.target.value }))}/></Field></>}{step === 2 && <><p>Optional — pin a model, or use the Hermes default.</p><button className={!draft.model ? 'model-option selected' : 'model-option'} onClick={() => setDraft(current => ({ ...current, model: '', provider: '' }))}><b>Use Hermes default</b><small>Inherits this PC’s provider and model.</small></button><button className={draft.model === 'gpt-5.6-sol' ? 'model-option selected' : 'model-option'} onClick={() => setDraft(current => ({ ...current, model: 'gpt-5.6-sol', provider: 'openai-api' }))}><b>gpt-5.6-sol</b><small>OpenAI API</small></button></>}{step === 3 && <><p>Choose an avatar that remains identical in Hermes Desktop and Mobile.</p><BotAppearancePicker name={draft.name} shape={draft.shape} onShape={shape => setDraft(current => ({ ...current, shape }))}/></>}{error && <p className="wizard-error">{error}</p>}</section><footer><button className="secondary" onClick={() => step ? setStep(step - 1) : close()}>{step ? 'Back' : 'Cancel'}</button><button className="primary" disabled={creating || (step === 0 && !draft.name)} onClick={() => step < 3 ? setStep(step + 1) : finish()}>{creating ? 'Creating…' : step < 3 ? 'Continue' : 'Create Bot'}</button></footer></main>
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

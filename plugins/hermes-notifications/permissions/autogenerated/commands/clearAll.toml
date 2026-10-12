@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-clearAll"
+description = "Enables the clearAll command without any pre-configured scope."
+commands.allow = ["clearAll"]
+
+[[permission]]
+identifier = "deny-clearAll"
+description = "Denies the clearAll command without any pre-configured scope."
+commands.deny = ["clearAll"]

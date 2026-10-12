@@ -1,6 +1,6 @@
 [package]
 name = "hermes-mobile-app"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
 [lib]
@@ -28,3 +28,4 @@ serde = { version = "1.0.229", features = ["derive"] }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-stt = "0.2.2"
+tauri-plugin-hermes-notifications = { path = "../plugins/hermes-notifications" }

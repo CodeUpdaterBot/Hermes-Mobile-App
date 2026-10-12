@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Check, Copy, Lightbulb, Wrench } from 'lucide-react'
+import { Check, Copy, Wrench } from 'lucide-react'
 import Markdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
@@ -49,7 +49,6 @@ type MessageCardProps = {
 export function MessageCard({ message, onEdit, profile, fallbackName, revealTimestamp, onRevealTimestamp }: MessageCardProps) {
   const [copied, setCopied] = useState(false)
   const [swipeStartX, setSwipeStartX] = useState<number | null>(null)
-  const reasoningSummary = message.reasoning?.split('\n')[0].replace(/^#{1,6}\s*/, '').replace(/[*_`~]/g, '').trim()
   const stats = formatResponseStats(message)
   const timestamp = formatMessageTime(message.timestamp)
   const copy = async () => {
@@ -70,7 +69,6 @@ export function MessageCard({ message, onEdit, profile, fallbackName, revealTime
     <div className="assistant-message-layout">
       <BotAvatar profile={profile} fallbackName={fallbackName} variant="message"/>
       <div className="assistant-message-content">
-        {message.reasoning && <details className="thinking-card"><summary><span className="thinking-title"><Lightbulb size={14}/><b>Thinking</b><em>{reasoningSummary}</em></span><span className="disclosure">⌄</span></summary><div className="thinking-copy"><MarkdownContent>{message.reasoning}</MarkdownContent></div></details>}
         <MarkdownContent>{message.content}</MarkdownContent>
         {stats && <div className="response-stats" aria-label="Response generation statistics">{stats}</div>}
         <div className="message-actions"><button onClick={() => void copy()}>{copied ? <Check size={13}/> : <Copy size={13}/>}<span>{copied ? 'Copied' : 'Copy'}</span></button></div>

@@ -7,6 +7,8 @@ import { attachFile, completeSlash, loadModelOptions, setSessionModel, setSessio
 import { BotAvatar } from './BotAvatar'
 import { applySlashCompletion } from '../slash-routing'
 import { isExpectedVoiceCleanupError, VOICE_AUTOSEND_HOLD_MS } from '../voice-input'
+import { haptic } from '../haptics'
+import { formatModelName, modelLabel } from '../model-label'
 
 export type ComposerEditRequest = { text: string; nonce: number }
 export type ComposerDropFilesRef = { current: ((files: File[]) => void) | null }
@@ -252,7 +254,7 @@ export const Composer = memo(function Composer({ session, profiles, sending, dra
   }
   const onMicPointerDown = () => {
     if (draft || sending || voiceState !== 'idle') return
-    holdTimerRef.current = window.setTimeout(() => { ignoreMicClickRef.current = true; void startVoice(true) }, VOICE_AUTOSEND_HOLD_MS)
+    holdTimerRef.current = window.setTimeout(() => { ignoreMicClickRef.current = true; haptic('impact'); void startVoice(true) }, VOICE_AUTOSEND_HOLD_MS)
   }
   const onMicPointerUp = () => {
     if (holdTimerRef.current) { window.clearTimeout(holdTimerRef.current); holdTimerRef.current = null }
@@ -341,7 +343,7 @@ export const Composer = memo(function Composer({ session, profiles, sending, dra
     {modelMenu && <section className="model-popover">
       <div className="model-search"><Search size={14}/><input value={modelSearch} onChange={event => setModelSearch(event.target.value)} placeholder="Search models"/></div>
       <small className="popover-label">Available models</small>
-      <div className="model-list">{filteredModels.length ? filteredModels.map(item => <button className={item.name === model && item.provider === provider ? 'selected' : ''} disabled={!item.authenticated} key={`${item.provider}:${item.name}`} onClick={() => void chooseModel(item.provider, item.name)}><span><b>{item.name}</b><small>{item.providerName}</small></span>{item.name === model && item.provider === provider && <span>✓</span>}</button>) : <p>No configured models match.</p>}</div>
+      <div className="model-list">{filteredModels.length ? filteredModels.map(item => <button className={item.name === model && item.provider === provider ? 'selected' : ''} disabled={!item.authenticated} key={`${item.provider}:${item.name}`} onClick={() => void chooseModel(item.provider, item.name)}><span><b>{formatModelName(item.name)}</b><small>{item.providerName}</small></span>{item.name === model && item.provider === provider && <span>✓</span>}</button>) : <p>No configured models match.</p>}</div>
     </section>}
     {reasoningMenu && <section className="reasoning-popover"><small className="popover-label">Reasoning effort</small>{reasoningChoices.map(item => <button className={item === reasoning ? 'selected' : ''} key={item} onClick={() => void chooseReasoning(item)}><span>{labelReasoning(item)}</span>{item === reasoning && <span>✓</span>}</button>)}</section>}
 
@@ -354,7 +356,7 @@ export const Composer = memo(function Composer({ session, profiles, sending, dra
         <div className="composer-toolbar">
           <input ref={fileInputRef} className="attachment-input" type="file" multiple onChange={onFileInput} aria-label="Choose files to attach"/>
           <button className={`composer-icon ${attachments.length ? 'attachment-active' : ''}`} disabled={sending || voiceState !== 'idle'} title="Attach files" onClick={() => fileInputRef.current?.click()} aria-label="Attach files"><Paperclip size={17}/></button>
-          <button className="composer-selector" onClick={() => { setModelMenu(value => !value); setReasoningMenu(false) }}><span>{model || 'Default model'}</span><ChevronDown size={13}/></button>
+          <button className="composer-selector" onClick={() => { setModelMenu(value => !value); setReasoningMenu(false) }}><span>{modelLabel(model, 'Default model')}</span><ChevronDown size={13}/></button>
           <button className="composer-selector effort" onClick={() => { setReasoningMenu(value => !value); setModelMenu(false) }}><BrainCircuit size={14}/><span>{labelReasoning(reasoning)}</span><ChevronDown size={13}/></button>
           <span className="toolbar-spacer"/>
           {!draft && !sending && <button className="composer-icon voice-trigger" disabled={voiceState !== 'idle'} title="Tap to dictate. Hold for 2.5 seconds to dictate and send." onPointerDown={onMicPointerDown} onPointerUp={onMicPointerUp} onPointerCancel={onMicPointerUp} onClick={onMicClick} aria-label="Record voice. Hold for 2.5 seconds to auto-send"><Mic size={17}/></button>}

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, Paperclip, RotateCw, X } from 'lucide-react'
 import type { DragEvent } from 'react'
 
@@ -9,12 +9,19 @@ import { applySlashCompletion } from '../slash-routing'
 import { SCROLL_FOLLOW_THRESHOLD, shouldStickToBottom } from '../scroll-follow'
 import { formatResponseStats } from '../message-stats'
 import { useEdgeSwipeBack } from '../edge-swipe'
+import { modelLabel as formatModelLabel } from '../model-label'
+import { buildTranscript, type ActivityStep } from '../activity-group'
+import { ActivityBubble } from './ActivityBubble'
+import { ClarifyCard } from './ClarifyCard'
 import { Composer, type ComposerDropFilesRef, type ComposerEditRequest } from './Composer'
 import type { LiveMessage, LiveProfile, LiveSession, LiveUsage } from '../hermes'
 
 type Timeline = LiveMessage & { local?: boolean }
 type Props = {
   session: LiveSession
+  // In the wide tri-fold the chat lives in a middle column beside the Bots rail,
+  // so going "back" has nowhere to go — the header shows the Bot's avatar instead.
+  wide?: boolean
   conversationLoading: boolean
   messages: Timeline[]
   settledAssistant: { content: string; usage?: LiveUsage } | null
@@ -30,11 +37,14 @@ type Props = {
   submit: (attachments: { name: string; refText: string }[], text: string) => Promise<boolean>
   submitVoice: (text: string) => Promise<boolean>
   stop: () => void
+  /** Raw params of a host clarify request awaiting an answer, if any. */
+  clarify?: unknown | null
+  onClarifyAnswer: (result: unknown) => void
 }
 
 const titleize = (value: string) => value.split(/[-_]+/).filter(Boolean).map(part => part[0].toUpperCase() + part.slice(1)).join(' ')
 
-export function ChatView({ session, conversationLoading, messages, settledAssistant, profiles, streaming, sending, toolActivities, error, back, refresh, openProfile, onSessionModelChange, submit, submitVoice, stop }: Props) {
+export function ChatView({ session, wide = false, conversationLoading, messages, settledAssistant, profiles, streaming, sending, toolActivities, error, back, refresh, openProfile, onSessionModelChange, submit, submitVoice, stop, clarify, onClarifyAnswer }: Props) {
   const shellRef = useRef<HTMLElement>(null)
   useEdgeSwipeBack(shellRef, back)
   const threadRef = useRef<HTMLDivElement>(null)
@@ -45,6 +55,8 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
   const [following, setFollowing] = useState(true)
   const [unreadBelow, setUnreadBelow] = useState(0)
   const [revealedTimestampId, setRevealedTimestampId] = useState<number | null>(null)
+  const [headerElevated, setHeaderElevated] = useState(false)
+  const headerElevatedRef = useRef(false)
   const [controlError, setControlError] = useState('')
   const [draggingFiles, setDraggingFiles] = useState(false)
   const [pullDistance, setPullDistance] = useState(0)
@@ -62,6 +74,8 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
   const showActiveAssistant = sending || Boolean(settledAssistant)
   const showConversationLoading = conversationLoading
   const showEmptyState = !conversationLoading && !messages.length && !showActiveAssistant && !streaming && !toolActivities.length && !visibleError
+  // Consecutive tool calls and reasoning render as one updating bubble each.
+  const entries = useMemo(() => buildTranscript(messages, toolActivities.map<ActivityStep>(activity => ({ id: activity.id, kind: 'tool', name: activity.name, status: activity.status, duration_s: activity.duration_s, summary: activity.summary }))), [messages, toolActivities])
 
   const scrollToLatest = (behavior: ScrollBehavior = 'smooth') => {
     const thread = threadRef.current
@@ -94,6 +108,8 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
     setFollowing(true)
     setUnreadBelow(0)
     setRevealedTimestampId(null)
+    headerElevatedRef.current = false
+    setHeaderElevated(false)
   }, [session.id])
 
   useLayoutEffect(() => {
@@ -125,6 +141,13 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
   const onScroll = () => {
     const thread = threadRef.current
     if (!thread) return
+    // Elevate the header once content passes beneath it, the way a native
+    // navigation bar separates itself from scrolling content.
+    const scrolled = thread.scrollTop > 6
+    if (scrolled !== headerElevatedRef.current) {
+      headerElevatedRef.current = scrolled
+      setHeaderElevated(scrolled)
+    }
     const nearEnd = shouldStickToBottom(thread.scrollHeight, thread.scrollTop, thread.clientHeight, SCROLL_FOLLOW_THRESHOLD)
     if (nearEnd === followingRef.current) return
     followingRef.current = nearEnd
@@ -168,9 +191,11 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
 
   return <main ref={shellRef} className="app chat-shell" onDragOver={onDragOver} onDrop={onDrop} onDragLeave={() => setDraggingFiles(false)}>
     {draggingFiles && <div className="file-drop-overlay" aria-live="polite"><div><Paperclip size={24}/><b>Drop files to upload to Hermes</b><span>Documents stay on the host for Hermes to read</span></div></div>}
-    <header className="chat-header">
-      <button className="round-control" onClick={back} aria-label="Back"><ArrowDown size={18} className="back-chevron"/></button>
-      <div className="chat-title"><button className="chat-identity-button" onClick={openProfile} aria-label={`Open ${botName} settings`}><BotAvatar profile={botProfile} fallbackName={session.profile} variant="header"/><span><b>{botName}</b><small>{botName} · {sending ? 'Working' : modelLabel || 'Hermes default'}</small></span></button></div>
+    <header className={`chat-header${headerElevated ? ' elevated' : ''}${wide ? ' wide-header' : ''}`}>
+      {wide
+        ? <span className="chat-header-avatar"><BotAvatar profile={botProfile} fallbackName={session.profile} variant="header"/></span>
+        : <button className="round-control" onClick={back} aria-label="Back"><ArrowDown size={18} className="back-chevron"/></button>}
+      <div className="chat-title"><button className="chat-identity-button" onClick={openProfile} aria-label={`Open ${botName} settings`}>{!wide && <BotAvatar profile={botProfile} fallbackName={session.profile} variant="header"/>}<span><b>{botName}</b><small>{sending ? 'Working' : formatModelLabel(modelLabel || session.model)}</small></span></button></div>
       <button className="round-control" onClick={refresh} aria-label="Refresh conversation"><RotateCw size={16}/></button>
     </header>
 
@@ -181,13 +206,16 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
         {(pullDistance > 8 || pullRefreshing) && <div className="chat-pull-cue" style={{ height: `${pullRefreshing ? 34 : pullDistance}px` }}><RotateCw size={14} className={pullRefreshing ? 'pull-refresh-spinner' : ''}/><span>{pullRefreshing ? 'Refreshing…' : pullDistance >= 48 ? 'Release to refresh' : 'Pull to refresh'}</span></div>}
         {showConversationLoading && <section className="chat-empty-state conversation-loading" aria-live="polite" aria-label={`Loading ${botName} conversation`}><BotAvatar profile={botProfile} fallbackName={session.profile} variant="welcome"/><h1>{botName.toUpperCase()}</h1><p>{botName} · {modelLabel || 'Hermes Desktop'}</p><LoadingSpinner/></section>}
         {showEmptyState && <section className="chat-empty-state" aria-label={`Start a conversation with ${botName}`}><BotAvatar profile={botProfile} fallbackName={session.profile} variant="welcome"/><h1>{botName.toUpperCase()}</h1><p>Say something to get started.</p></section>}
-        {messages.map(message => <MessageCard key={message.id} message={message} onEdit={editMessage} profile={botProfile} fallbackName={session.profile} revealTimestamp={message.role === 'assistant' && revealedTimestampId === message.id} onRevealTimestamp={() => setRevealedTimestampId(current => current === message.id ? null : message.id)}/>)}
-        {toolActivities.map(activity => <ToolActivityRow activity={activity} key={activity.id}/>)}
+        {entries.map(entry => entry.kind === 'message'
+          ? <MessageCard key={entry.key} message={entry.message} onEdit={editMessage} profile={botProfile} fallbackName={session.profile} revealTimestamp={entry.message.role === 'assistant' && revealedTimestampId === entry.message.id} onRevealTimestamp={() => setRevealedTimestampId(current => current === entry.message.id ? null : entry.message.id)}/>
+          : <ActivityBubble key={entry.key} steps={entry.steps}/>)}
         {showActiveAssistant && <article className="message-row assistant-row live-response"><div className="assistant-message-layout"><BotAvatar profile={botProfile} fallbackName={session.profile} variant="message"/><div className="assistant-message-content">{sending && !streaming && <div className="live-label"><span className="stream-pulse"/> Thinking</div>}{activeAssistantText && <MarkdownContent>{activeAssistantText}</MarkdownContent>}<div className={`response-stats ${settledStats ? '' : 'response-stats-placeholder'}`} aria-label={settledStats ? 'Response generation statistics' : undefined} aria-hidden={settledStats ? undefined : true}>{settledStats || '\u00a0'}</div></div></div></article>}
       </div>
     </div>
 
     {!following && <button className="latest-button" onClick={() => scrollToLatest()}><ArrowDown size={15}/><span>Latest{unreadBelow ? ` · ${unreadBelow}` : ''}</span></button>}
+
+    {clarify ? <ClarifyCard params={clarify} onAnswer={onClarifyAnswer}/> : null}
 
     <Composer session={session} profiles={profiles} sending={sending} draggingFiles={draggingFiles} editRequest={editRequest} dropFilesRef={dropFilesRef} onControlError={setControlError} onModelLabel={setModelLabel} onSessionModelChange={onSessionModelChange} submit={submit} submitVoice={submitVoice} stop={stop}/>
   </main>
@@ -195,10 +223,4 @@ export function ChatView({ session, conversationLoading, messages, settledAssist
 
 function LoadingSpinner() {
   return <span className="conversation-spinner" role="status" aria-label="Loading"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></span>
-}
-
-function ToolActivityRow({ activity }: { activity: ToolActivity }) {
-  const running = activity.status === 'running'
-  const failed = activity.status === 'failed'
-  return <div className={`live-tool ${failed ? 'failed' : ''}`}><span className={running ? 'tool-spinner' : 'tool-state'}>{running ? '⋯' : failed ? '!' : '✓'}</span><span><b>{activity.name}</b><small>{running ? 'running…' : failed ? 'failed' : activity.summary || 'done'}</small></span>{activity.duration_s != null && <time>{activity.duration_s.toFixed(1)}s</time>}</div>
 }
