@@ -285,7 +285,10 @@ input,textarea,.markdown-body,.user-bubble,.thinking-copy,.tool-card,.task-card,
 .app.chat-shell .group-composer textarea::-webkit-scrollbar{display:none;width:0;height:0}
 
 .new-group-body{padding:0 18px calc(26px + env(safe-area-inset-bottom))}
-.new-group-intro{margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5}
+/* 16px of headroom under the header rule: at 0 the intro sat flush against the divider,
+   which reads as cramped rather than deliberate. Matches the head-to-body gap used by the
+   other management surfaces (tasks-head: 17px). */
+.new-group-intro{margin:16px 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5}
 .new-group-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .new-group-chip{display:flex;align-items:center;gap:6px;padding:5px 7px 5px 5px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);font-size:12px}
 .new-group-chip button{border:0;background:transparent;color:var(--quiet);display:flex;padding:0;cursor:pointer}
