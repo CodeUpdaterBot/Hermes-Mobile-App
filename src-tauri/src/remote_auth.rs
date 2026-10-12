@@ -63,17 +63,47 @@ fn account(origin: &str) -> String {
     )
 }
 
+/// True when a stored secret exists but can never be read *on this device*. The platform
+/// keystore seals entries with a device-bound key, so a credential that travelled here by a
+/// phone-to-phone app transfer (or survived a keystore rotation) cannot be decrypted: the
+/// ciphertext moved, the key that sealed it did not.
+fn is_unreadable_secret(message: &str) -> bool {
+    let text = message.to_ascii_lowercase();
+    text.contains("malformed") || text.contains("decrypt")
+}
+
 pub fn load(app: &AppHandle, origin: &str) -> Result<Tokens, String> {
-    let raw = app
-        .keyring()
-        .store
-        .get_password(&account(origin))
-        .map_err(|e| format!("Android secure credential store unavailable: {e}"))?
-        .ok_or_else(|| {
-            "This Hermes gateway needs sign-in. Tap Continue to secure sign-in.".to_string()
-        })?;
-    serde_json::from_str(&raw)
-        .map_err(|_| "Saved gateway credential is invalid. Sign in again.".to_string())
+    let account = account(origin);
+    let raw = match app.keyring().store.get_password(&account) {
+        Ok(Some(raw)) => raw,
+        Ok(None) => {
+            return Err(
+                "This Hermes gateway needs sign-in. Tap Continue to secure sign-in.".to_string(),
+            )
+        }
+        Err(e) => {
+            let message = e.to_string();
+            // An unreadable entry must be dropped, not merely reported. Reporting it leaves the
+            // app permanently wedged: every read fails, so the credential can never be replaced
+            // and the pairing screen is unreachable. Clearing it restores the "needs sign-in"
+            // state, which is the only state from which the user can pair again.
+            if is_unreadable_secret(&message) {
+                let _ = app.keyring().store.delete(&account);
+                return Err(
+                    "The saved credential could not be read on this device and was cleared; it was \
+                     probably sealed by another device's keystore. Pair this gateway again."
+                        .to_string(),
+                );
+            }
+            return Err(format!("Android secure credential store unavailable: {message}"));
+        }
+    };
+    serde_json::from_str(&raw).map_err(|_| {
+        // Same reasoning: unparseable content is unusable forever, so clear it rather than
+        // leaving a blob that fails every future read.
+        let _ = app.keyring().store.delete(&account);
+        "Saved gateway credential was unreadable and has been cleared. Sign in again.".to_string()
+    })
 }
 
 fn persist_tokens_without_endpoint(
