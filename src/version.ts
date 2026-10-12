@@ -6,4 +6,4 @@
  * `tauri.conf.json`, and Cargo names the build. Drift between them is how a "0.2.0" release
  * quietly ships 0.1.1 binaries.
  */
-export const APP_VERSION = '0.2.0'
+export const APP_VERSION = '0.2.1'
