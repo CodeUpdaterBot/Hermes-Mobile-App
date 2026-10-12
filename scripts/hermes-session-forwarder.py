@@ -34,7 +34,10 @@ import time
 import urllib.parse
 
 CONNECT_TIMEOUT = 2.0
+PROBE_TIMEOUT = 0.4
 RESOLVE_TTL = 1.0
+IDLE_TIMEOUT = 180.0
+MAX_HEAD = 65536
 
 
 def _pid_alive(pid: object) -> bool:
@@ -128,6 +131,74 @@ class Resolver:
             return self._target
 
 
+def pump(src: socket.socket, dst: socket.socket, done: threading.Event) -> None:
+    """Relay one direction until either side closes."""
+    try:
+        while not done.is_set():
+            chunk = src.recv(65536)
+            if not chunk:
+                break
+            dst.sendall(chunk)
+    except OSError:
+        pass
+    finally:
+        done.set()
+
+
+def rewrite_head(head: bytes, authority: str) -> tuple[bytes, bool, int]:
+    """Rewrite ``Host`` and ``Origin`` to the target's own loopback identity.
+
+    The owner binds loopback, and Hermes rejects a Host it did not bind (DNS-rebinding
+    guard, ``web_server.host_header_middleware`` -> ``_is_accepted_host``); the same rule
+    covers ``Origin`` on the WebSocket dial (``web_server_chat``). Rewriting both to the
+    target's own authority passes that guard in its loopback branch, so the owner's
+    configuration -- and its ``auth_required`` mode in particular -- is left untouched.
+
+    Returns ``(head, is_upgrade, content_length)`` so the caller knows how much body to
+    stream before expecting the next request on a keep-alive connection.
+    """
+    authority_bytes = authority.encode()
+    origin_bytes = ("http://" + authority).encode()
+    lines = head.split(b"\r\n")
+    out: list[bytes] = []
+    is_upgrade = False
+    content_length = 0
+    for index, line in enumerate(lines):
+        lowered = line.lower()
+        if index and lowered.startswith(b"host:"):
+            out.append(b"Host: " + authority_bytes)
+            continue
+        if index and lowered.startswith(b"origin:"):
+            out.append(b"Origin: " + origin_bytes)
+            continue
+        if lowered.startswith(b"upgrade:"):
+            is_upgrade = True
+        if lowered.startswith(b"content-length:"):
+            try:
+                content_length = int(line.split(b":", 1)[1].strip() or b"0")
+            except ValueError:
+                content_length = 0
+        out.append(line)
+    return b"\r\n".join(out), is_upgrade, content_length
+
+
+def read_head(sock: socket.socket) -> bytes | None:
+    """Read through the end of one request's headers, or ``None`` when the peer goes away."""
+    sock.settimeout(IDLE_TIMEOUT)
+    buf = bytearray()
+    while b"\r\n\r\n" not in buf:
+        if len(buf) > MAX_HEAD:
+            return None
+        try:
+            chunk = sock.recv(4096)
+        except OSError:
+            return None
+        if not chunk:
+            return None
+        buf.extend(chunk)
+    return bytes(buf)
+
+
 class Handler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         target = self.server.resolver.target()  # type: ignore[attr-defined]
@@ -136,39 +207,38 @@ class Handler(socketserver.BaseRequestHandler):
             return
         log = self.server.log  # type: ignore[attr-defined]
         log("forwarding a connection to %s:%s" % target)
+        done = threading.Event()
+        # Responses relay on their own thread so the request side stays free to rewrite the
+        # headers of later keep-alive requests.
+        thread = threading.Thread(target=pump, args=(upstream, self.request, done), daemon=True)
+        thread.start()
         try:
-            _pipe_both(self.request, upstream)
+            while not done.is_set():
+                head = read_head(self.request)
+                if head is None:
+                    break
+                head_part, _, body_start = head.partition(b"\r\n\r\n")
+                rewritten, is_upgrade, content_length = rewrite_head(head_part, "%s:%s" % target)
+                upstream.sendall(rewritten + b"\r\n\r\n")
+                if body_start:
+                    upstream.sendall(body_start)
+                remaining = max(0, content_length - len(body_start))
+                while remaining > 0 and not done.is_set():
+                    chunk = self.request.recv(min(65536, remaining))
+                    if not chunk:
+                        break
+                    upstream.sendall(chunk)
+                    remaining -= len(chunk)
+                if is_upgrade:
+                    # A WebSocket is a byte stream from here: no further headers to rewrite.
+                    pump(self.request, upstream, done)
+                    break
         finally:
+            done.set()
             try:
                 upstream.close()
             except OSError:
                 pass
-
-
-def _pipe_both(client: socket.socket, upstream: socket.socket) -> None:
-    """Pump both directions until either side closes (HTTP keep-alive and WS both survive)."""
-    done = threading.Event()
-
-    def pump(src: socket.socket, dst: socket.socket) -> None:
-        try:
-            while not done.is_set():
-                chunk = src.recv(65536)
-                if not chunk:
-                    break
-                dst.sendall(chunk)
-        except OSError:
-            pass
-        finally:
-            done.set()
-
-    threads = [
-        threading.Thread(target=pump, args=(client, upstream), daemon=True),
-        threading.Thread(target=pump, args=(upstream, client), daemon=True),
-    ]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
 
 
 class Server(socketserver.ThreadingTCPServer):
