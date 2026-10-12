@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Monitor, Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, MessageSquare, Monitor, Plus, RefreshCw, Search, Settings as SettingsIcon, Users, X } from 'lucide-react'
 
 import { ChatView } from './components/ChatView'
 import { BotAvatar } from './components/BotAvatar'
@@ -18,6 +18,7 @@ import { flushSync } from 'react-dom'
 import { buildAttachmentPrompt, attachmentSummary } from './attachment-routing'
 import { buildBotRows, resolveCanonicalSessionId } from './live-model'
 import { GatewayRpcError } from './gateway'
+import { createSession } from './hermes'
 import { groupKey, groupMembersFor, groupNamesOf, groupsFromProfiles, groupRoomId } from './groups'
 import { rememberRoomId } from './group-rooms'
 import { settleAssistantResponse, type SettledAssistantResponse as SettledAssistantState } from './settled-assistant'
@@ -514,6 +515,12 @@ export default function App() {
     })
   }, [])
   const [newGroupOpen, setNewGroupOpen] = useState(false)
+  // The New Bot control is a menu, not a button: creating a Bot and starting a fresh chat
+  // with an existing one are the two things a user means by "new" here.
+  const [newBotMenuOpen, setNewBotMenuOpen] = useState(false)
+  const [newChatOpen, setNewChatOpen] = useState(false)
+  const [newChatBusy, setNewChatBusy] = useState(false)
+  const [newChatError, setNewChatError] = useState('')
   const [groupBusy, setGroupBusy] = useState(false)
   const [groupError, setGroupError] = useState('')
   const [computerOpen, setComputerOpen] = useState(true)
@@ -661,7 +668,7 @@ export default function App() {
       {error && <Notice message={error} retry={() => void refresh()}/>}
       {loading && !profiles.length ? <Skeleton/> : tab === 'bots' ? <section className="bot-list">{rosterEntries.map((entry, index) => entry.kind === 'group' ? <button className="bot-row group-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={entry.key} onClick={() => setOpenGroupName(entry.group.name)}><span className="group-glyph"><Users size={17}/></span><span className="bot-copy"><b>{entry.group.name}</b><small>{entry.group.members.length} bots · {entry.group.members.map(name => titleize(name)).join(', ')}</small></span><span className="meta">{entry.lastActive ? ago(entry.lastActive) : ''}</span></button> : <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={entry.key} disabled={!entry.session} onClick={() => entry.session && void openSession(entry.session)}><BotAvatar profile={entry.profile} fallbackName={entry.profile.name}/><span className="bot-copy"><b>{entry.profile.display_name || titleize(entry.profile.name)}</b><small>{entry.session?.preview || entry.profile.description || 'No messages yet'} </small></span><span className="meta">{ago(entry.session?.last_active)}{entry.session && <i className={entry.session.unread ? 'unread' : ''}/>}</span></button>)}</section> : <section className="bot-list">{visibleSessions.map((session, index) => <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={`${session.profile}:${session.id}`} onClick={() => void openSession(session)}><BotAvatar profile={profiles.find(profile => profile.name === session.profile)} fallbackName={session.profile} variant="session"/><span className="bot-copy"><b>{session.title || 'Untitled session'}</b><small>{titleize(session.profile)} · {session.preview}</small></span><span className="meta">{ago(session.last_active)}</span></button>)}</section>}
     </div>
-    <footer className="roster-actions">{tab === 'bots' ? <><button className="secondary" onClick={() => { setGroupError(''); setNewGroupOpen(true) }}><Users size={16}/> New group</button><button className="primary" onClick={() => setCreateOpen(true)}><Plus size={16}/> New Bot</button></> : <button className="primary wide" onClick={() => setTab('bots')}>Back to Bots</button>}</footer>
+    <footer className="roster-actions">{tab === 'bots' ? <><button className="secondary" onClick={() => { setGroupError(''); setNewGroupOpen(true) }}><Users size={16}/> New group</button><span className="new-bot-wrap">{newBotMenuOpen && <div className="new-bot-menu"><button onClick={() => { setNewBotMenuOpen(false); setNewChatOpen(true) }}><MessageSquare size={15}/> New Chat</button><button onClick={() => { setNewBotMenuOpen(false); setCreateOpen(true) }}><Plus size={15}/> New Bot</button></div>}<button className="primary" onClick={() => setNewBotMenuOpen(value => !value)} aria-haspopup="menu" aria-expanded={newBotMenuOpen}><Plus size={16}/> New Bot</button></span></> : <button className="primary wide" onClick={() => setTab('bots')}>Back to Bots</button>}</footer>
   </main>
 
   // Membership is written first: it is what makes the group exist for every client
@@ -708,6 +715,30 @@ export default function App() {
     } finally { setGroupBusy(false) }
   }
 
+  // Start a clean conversation with a Bot the user already has. The Bot's Chat session
+  // accumulates history until it fills; this mints a new one and opens it, which is what
+  // "new chat with this Bot" means on the Desktop.
+  const startNewChat = useCallback(async (profileName: string) => {
+    setNewChatBusy(true); setNewChatError('')
+    try {
+      const id = await createSession(profileName)
+      setNewChatOpen(false); setNewBotMenuOpen(false)
+      await openSession({ id, title: 'New chat', preview: '', profile: profileName, last_active: Date.now() / 1000 })
+      await refresh()
+    } catch (reason) {
+      setNewChatError(errorMessage(reason, 'Could not start a new chat.'))
+    } finally { setNewChatBusy(false) }
+  }, [openSession, refresh])
+
+  const newChatView = <main className="app panel">
+    <header className="panel-head">
+      <button className="back-button" onClick={() => { setNewChatOpen(false); setNewChatError('') }} aria-label="Back">‹</button>
+      <div><h2>New Chat</h2><p>Start a fresh conversation with a Bot you already have</p></div>
+    </header>
+    {newChatError && <Notice message={newChatError} retry={() => setNewChatError('')}/>}
+    <section className="bot-list">{profiles.map((profile, index) => <button className="bot-row enter" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }} key={profile.name} disabled={newChatBusy} onClick={() => void startNewChat(profile.name)}><BotAvatar profile={profile} fallbackName={profile.name}/><span className="bot-copy"><b>{profile.display_name || titleize(profile.name)}</b><small>{profile.description || 'Start a new chat'}</small></span><span className="meta">{newChatBusy ? '…' : ''}</span></button>)}</section>
+  </main>
+
   const newGroupView = <NewGroupSheet profiles={profiles} busy={groupBusy} error={groupError} onClose={() => { setNewGroupOpen(false); setGroupError('') }} onCreate={(name, members) => void createBotGroup(name, members)}/>
 
   // A group chat is a conversation like any other: it opens in the same slot, and
@@ -717,7 +748,7 @@ export default function App() {
   const openGroup = openGroupName ? groups.find(group => groupKey(group.name) === groupKey(openGroupName)) : undefined
   const groupView = openGroup ? <GroupChat group={openGroup} profiles={profiles} wide={wide} back={() => setOpenGroupName(null)}/> : null
 
-  const screen = newGroupOpen ? newGroupView : createOpen ? wizardView : settings ? settingsView : profileView ?? groupView ?? chatView ?? (tab === 'tasks' ? tasksView : homeView)
+  const screen = newChatOpen ? newChatView : newGroupOpen ? newGroupView : createOpen ? wizardView : settings ? settingsView : profileView ?? groupView ?? chatView ?? (tab === 'tasks' ? tasksView : homeView)
 
   if (!wide) return screen
 

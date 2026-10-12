@@ -206,6 +206,20 @@ export async function loadGroupCapabilities(profile: string, baseUrl = activeHer
   return rpcCall<GroupCapabilities>('groups.capabilities', { profile }, baseUrl)
 }
 
+/**
+ * Mint a fresh live session for a profile — "new chat with this Bot".
+ *
+ * A Bot's Chat is its canonical session, and a long-lived one eventually fills its
+ * history; this is how a user starts clean without creating a second Bot. Hermes mints
+ * the id (the stored row appears on the first prompt), so the caller opens what comes
+ * back rather than guessing an id.
+ */
+export async function createSession(profile: string, baseUrl = activeHermes): Promise<string> {
+  const result = await rpcCall<{ session_id?: string }>('session.create', { profile }, baseUrl)
+  if (!result?.session_id) throw new Error('Hermes did not return the new chat’s id.')
+  return result.session_id
+}
+
 export async function listGroups(profile: string, baseUrl = activeHermes): Promise<GroupRoom[]> {
   const result = await rpcCall<{ rooms?: GroupRoom[] }>('groups.list', { profile }, baseUrl)
   return result.rooms || []
