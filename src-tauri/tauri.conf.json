@@ -4,6 +4,6 @@
   "version": "0.2.1",
   "identifier": "com.hermesagent.mobile",
   "build": { "beforeDevCommand": "npm run dev", "devUrl": "http://localhost:1420", "beforeBuildCommand": "npm run build", "frontendDist": "../dist" },
-  "app": { "windows": [{ "title": "Hermes Mobile", "width": 420, "height": 860, "resizable": true }], "security": { "csp": null } },
+  "app": { "windows": [{ "title": "Hermes Mobile", "width": 420, "height": 860, "resizable": true }], "security": { "csp": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost ws: wss:; img-src 'self' data: blob: http: https:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'" } },
   "bundle": { "active": true, "targets": "all", "icon": ["icons/icon.ico", "icons/icon.png"] }
 }
