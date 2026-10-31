@@ -1,0 +1,18 @@
+diff --git a/core/util/browser.js b/core/util/browser.js
+index 63596d211bc3f2ac0c1853d58488dcbb18bd8949..5d3596dcf943c9c324692829cb0a66a60e174eee 100644
+--- a/core/util/browser.js
++++ b/core/util/browser.js
+@@ -149,7 +149,12 @@ async function _checkWebCodecsH264DecodeSupport() {
+ 
+     return true;
+ }
+-supportsWebCodecsH264Decode = await _checkWebCodecsH264DecodeSupport();
++// Hermes Mobile: bounded probe. VideoDecoder.flush() never settles on some Android hardware
++// decoders (Galaxy Z Fold7, Android 17), and this top-level await then blocks every importer.
++supportsWebCodecsH264Decode = await Promise.race([
++    _checkWebCodecsH264DecodeSupport().catch(() => false),
++    new Promise(resolve => setTimeout(() => resolve(false), 2000)),
++]);
+ 
+ /*
+  * The functions for detection of platforms and browsers below are exported

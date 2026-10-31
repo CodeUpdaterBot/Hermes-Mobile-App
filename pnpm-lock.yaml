@@ -4,13 +4,18 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@novnc/novnc@1.7.0':
+    hash: 9b3246ff8dafbd122b56643db9c45cb6a4957c1b318d4046b9fbc37f4795ba10
+    path: patches/@novnc__novnc@1.7.0.patch
+
 importers:
 
   .:
     dependencies:
       '@novnc/novnc':
         specifier: ^1.7.0
-        version: 1.7.0
+        version: 1.7.0(patch_hash=9b3246ff8dafbd122b56643db9c45cb6a4957c1b318d4046b9fbc37f4795ba10)
       '@tauri-apps/api':
         specifier: ^2.10.0
         version: 2.11.1
@@ -1463,7 +1468,7 @@ snapshots:
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
 
-  '@novnc/novnc@1.7.0': {}
+  '@novnc/novnc@1.7.0(patch_hash=9b3246ff8dafbd122b56643db9c45cb6a4957c1b318d4046b9fbc37f4795ba10)': {}
 
   '@rolldown/pluginutils@1.0.0-rc.3': {}
 
