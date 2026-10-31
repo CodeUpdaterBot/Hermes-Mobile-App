@@ -135,6 +135,21 @@ If the host uses nonstandard locations, pass them directly:
   --tailscale-ip 100.x.y.z
 ```
 
+### Home network (LAN) mode without Tailscale
+
+When the phones only need to reach Hermes on the same home network, bind the gateway to the
+host's private LAN address instead:
+
+```bash
+./scripts/install-hermes-mobile-gateway-linux.sh install --lan-ip 192.168.1.20 --enable-linger
+./scripts/install-hermes-mobile-gateway-linux.sh status   # reuses the saved LAN bind
+```
+
+`--lan-ip` accepts only an RFC1918 address (10/8, 172.16/12, 192.168/16) that is assigned to
+the host, binds to that single address (never `0.0.0.0`), and applies the same basic-auth setup
+and exclusive-listener verification. The app's password sign-in accepts private LAN IPs. Keep
+TCP 9119 closed on your router; use Tailscale when phones must connect away from home.
+
 This installer requires Linux systemd, Tailscale, `curl`, `ss`, and `openssl`. It fails closed when a per-user systemd manager, authenticated gateway, private Tailscale bind, or listener ownership cannot be verified.
 
 ## Development stack (this clone)

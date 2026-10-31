@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Installs a private, authenticated Hermes gateway for Hermes Mobile on Linux.
-# The gateway binds only to the local Tailscale IPv4 address and runs as a
-# per-user systemd service. It never opens TCP 9119 to public/LAN interfaces.
+# The gateway binds only to the local Tailscale IPv4 address (or, with --lan-ip,
+# to one private RFC1918 LAN address) and runs as a per-user systemd service.
+# It never binds TCP 9119 to 0.0.0.0 or a public interface.
 set -euo pipefail
 
 MODE="install"
 HERMES_EXE=""
 HERMES_HOME_OVERRIDE=""
 TAILSCALE_IP=""
+LAN_IP=""
 PORT="9119"
 USERNAME=""
 SKIP_AUTH_SETUP=0
@@ -30,6 +32,9 @@ Options:
   --hermes PATH       Explicit Hermes executable path.
   --hermes-home PATH  Explicit Hermes home directory.
   --tailscale-ip IP   Explicit local Tailscale IPv4 address.
+  --lan-ip IP         Bind to this host's private LAN IPv4 address instead of
+                      Tailscale (10/8, 172.16/12 or 192.168/16 only). Phones on
+                      the same home network can pair without Tailscale.
   --port PORT         Gateway port (default: 9119).
   --username NAME     Username for first-time basic authentication setup.
   --skip-auth-setup   Do not create basic auth; use only with an existing
@@ -40,7 +45,8 @@ Options:
 
 Install creates ~/.config/systemd/user/hermes-mobile-gateway.service. Hermes
 binds only to the host's assigned Tailscale 100.64.0.0/10 IPv4 address, so
-TCP 9119 is not bound to ordinary LAN or public interfaces.
+TCP 9119 is not bound to ordinary LAN or public interfaces. With --lan-ip it
+binds to that single private LAN address; keep 9119 blocked at your router.
 EOF
 }
 
@@ -50,6 +56,7 @@ while (($#)); do
     --hermes) HERMES_EXE="${2:?--hermes requires a path}"; shift ;;
     --hermes-home) HERMES_HOME_OVERRIDE="${2:?--hermes-home requires a path}"; shift ;;
     --tailscale-ip) TAILSCALE_IP="${2:?--tailscale-ip requires an address}"; shift ;;
+    --lan-ip) LAN_IP="${2:?--lan-ip requires an address}"; shift ;;
     --port) PORT="${2:?--port requires a number}"; shift ;;
     --username) USERNAME="${2:?--username requires a name}"; shift ;;
     --skip-auth-setup) SKIP_AUTH_SETUP=1 ;;
@@ -61,6 +68,13 @@ while (($#)); do
 done
 
 [[ "$PORT" =~ ^[0-9]+$ ]] && ((PORT >= 1 && PORT <= 65535)) || die '--port must be 1 through 65535.'
+[[ -z "$LAN_IP" || -z "$TAILSCALE_IP" ]] || die 'Choose either --lan-ip or --tailscale-ip, not both.'
+# status/uninstall without flags reuse the bind chosen at install time.
+if [[ -z "$LAN_IP" && -z "$TAILSCALE_IP" && "$MODE" == 'status' && -f "$RUNTIME_ENV" ]] && grep -qx "BIND_MODE=lan" "$RUNTIME_ENV"; then
+  LAN_IP="$(sed -n 's/^TAILSCALE_IP=//p' "$RUNTIME_ENV" | tail -n 1)"
+fi
+BIND_MODE="tailscale"
+[[ -n "$LAN_IP" ]] && BIND_MODE="lan"
 [[ "$(uname -s)" == "Linux" ]] || die 'This installer is for Linux. Use install-hermes-mobile-gateway.ps1 on Windows or install-hermes-mobile-gateway.sh on macOS.'
 command -v systemctl >/dev/null 2>&1 || die 'systemd/systemctl is required for this Linux installer. Use your distribution’s supported service manager or install systemd first.'
 command -v curl >/dev/null 2>&1 || die 'curl is required for authenticated gateway verification.'
@@ -123,10 +137,27 @@ resolve_ip() {
   fi
 }
 
+is_private_lan_ipv4() {
+  awk -v ip="$1" 'BEGIN { n=split(ip,a,"."); if (n!=4) exit 1; for (i=1;i<=4;i++) if (a[i] !~ /^[0-9]+$/ || a[i]>255) exit 1; exit !(a[1]==10 || (a[1]==172 && a[2]>=16 && a[2]<=31) || (a[1]==192 && a[2]==168)) }'
+}
+
+local_lan_ips() {
+  ip -4 -o addr show 2>/dev/null | awk '{ split($4, cidr, "/"); print cidr[1] }'
+}
+
+resolve_lan_ip() {
+  command -v ip >/dev/null 2>&1 || die 'ip (iproute2) is required for --lan-ip.'
+  is_private_lan_ipv4 "$LAN_IP" || die '--lan-ip must be a private IPv4 address in 10.0.0.0/8, 172.16.0.0/12 or 192.168.0.0/16.'
+  local_lan_ips | grep -Fx -- "$LAN_IP" >/dev/null || die "--lan-ip $LAN_IP is not currently assigned to this Linux host."
+  printf '%s\n' "$LAN_IP"
+}
+
 dotenv_value() {
   local key="$1"
   [[ -f "$ENV_FILE" ]] || return 0
-  grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2-
+  # A missing key is an empty value, not a failure: under set -e + pipefail grep's exit 1
+  # would otherwise end the script silently at the first lookup (#2).
+  { grep -E "^${key}=" "$ENV_FILE" 2>/dev/null || true; } | tail -n 1 | cut -d= -f2-
 }
 
 set_dotenv_value() {
@@ -172,14 +203,20 @@ unit_escape() { printf '%s' "$1" | sed -e 's/\\\\/\\\\\\\\/g' -e 's/"/\\\\"/g' -
 write_runtime() {
   mkdir -p "$RUNTIME_DIR"
   umask 077
-  printf 'HERMES_HOME=%q\nHERMES_EXE=%q\nTAILSCALE_BIN=%q\nTAILSCALE_IP=%q\nPORT=%q\n' "$RESOLVED_HOME" "$RESOLVED_HERMES" "$TAILSCALE_BIN" "$RESOLVED_IP" "$PORT" > "$RUNTIME_ENV"
+  printf 'HERMES_HOME=%q\nHERMES_EXE=%q\nTAILSCALE_BIN=%q\nTAILSCALE_IP=%q\nPORT=%q\nBIND_MODE=%q\n' "$RESOLVED_HOME" "$RESOLVED_HERMES" "$TAILSCALE_BIN" "$RESOLVED_IP" "$PORT" "$BIND_MODE" > "$RUNTIME_ENV"
   cat > "$RUNNER_PATH" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname "$0")/gateway.env"
-valid_ip() { awk -v ip="$1" 'BEGIN { n=split(ip,a,"."); exit !(n==4 && a[1]==100 && a[2]>=64 && a[2]<=127 && a[3]>=0 && a[3]<=255 && a[4]>=0 && a[4]<=255) }'; }
-valid_ip "$TAILSCALE_IP" || { printf 'Saved Tailscale IP is invalid: %s\n' "$TAILSCALE_IP" >&2; exit 1; }
-"$TAILSCALE_BIN" ip -4 2>/dev/null | grep -Fx -- "$TAILSCALE_IP" >/dev/null || { printf 'Saved Tailscale IP is no longer assigned: %s. Rerun the Hermes Mobile Linux installer.\n' "$TAILSCALE_IP" >&2; exit 1; }
+if [[ "${BIND_MODE:-tailscale}" == 'lan' ]]; then
+  valid_ip() { awk -v ip="$1" 'BEGIN { n=split(ip,a,"."); exit !(n==4 && (a[1]==10 || (a[1]==172 && a[2]>=16 && a[2]<=31) || (a[1]==192 && a[2]==168))) }'; }
+  assigned() { ip -4 -o addr show 2>/dev/null | awk '{ split($4, c, "/"); print c[1] }'; }
+else
+  valid_ip() { awk -v ip="$1" 'BEGIN { n=split(ip,a,"."); exit !(n==4 && a[1]==100 && a[2]>=64 && a[2]<=127 && a[3]>=0 && a[3]<=255 && a[4]>=0 && a[4]<=255) }'; }
+  assigned() { "$TAILSCALE_BIN" ip -4 2>/dev/null; }
+fi
+valid_ip "$TAILSCALE_IP" || { printf 'Saved gateway IP is invalid: %s\n' "$TAILSCALE_IP" >&2; exit 1; }
+assigned | grep -Fx -- "$TAILSCALE_IP" >/dev/null || { printf 'Saved gateway IP is no longer assigned: %s. Rerun the Hermes Mobile Linux installer.\n' "$TAILSCALE_IP" >&2; exit 1; }
 [[ "${1:-}" == '--check' ]] && exit 0
 exec "$HERMES_EXE" serve --host "$TAILSCALE_IP" --port "$PORT" --skip-build
 EOF
@@ -198,7 +235,7 @@ install_unit() {
   escaped_runner="$(unit_escape "$RUNNER_PATH")"
   cat > "$UNIT_PATH" <<EOF
 [Unit]
-Description=Hermes Mobile private Tailscale gateway
+Description=Hermes Mobile private gateway
 Documentation=https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard
 After=network-online.target
 Wants=network-online.target
@@ -267,7 +304,7 @@ show_status() {
   local healthy=0 response
   info "Hermes home: $RESOLVED_HOME"
   info "Hermes executable: $RESOLVED_HERMES"
-  info "Tailscale gateway URL: http://$RESOLVED_IP:$PORT"
+  info "Gateway URL ($BIND_MODE): http://$RESOLVED_IP:$PORT"
   if systemctl --user is-active --quiet "$UNIT_NAME"; then ok "systemd unit $UNIT_NAME is active."; else warn "systemd unit $UNIT_NAME is not active."; healthy=1; fi
   if ! assert_private_hermes_listener >/dev/null 2>&1; then warn 'Gateway listener is missing, broad, or not Hermes-owned.'; healthy=1; fi
   response="$(curl --fail --silent --connect-timeout 3 "http://$RESOLVED_IP:$PORT/api/status" 2>/dev/null || true)"
@@ -288,8 +325,13 @@ fi
 
 RESOLVED_HOME="$(resolve_home)"
 RESOLVED_HERMES="$(resolve_hermes)"
-TAILSCALE_BIN="$(resolve_tailscale)"
-RESOLVED_IP="$(resolve_ip)"
+if [[ "$BIND_MODE" == 'lan' ]]; then
+  TAILSCALE_BIN=""
+  RESOLVED_IP="$(resolve_lan_ip)"
+else
+  TAILSCALE_BIN="$(resolve_tailscale)"
+  RESOLVED_IP="$(resolve_ip)"
+fi
 ENV_FILE="$RESOLVED_HOME/.env"
 
 case "$MODE" in
@@ -306,6 +348,10 @@ case "$MODE" in
     test_gateway
     printf '\n'
     ok "Hermes Mobile host setup is complete. On your phone, enter: http://$RESOLVED_IP:$PORT"
-    warn 'This gateway is restricted to your private Tailscale network. Do not expose port 9119 directly to the public internet.'
+    if [[ "$BIND_MODE" == 'lan' ]]; then
+      warn 'This gateway is reachable from your private LAN only. Keep port 9119 closed on your router and never forward it to the internet.'
+    else
+      warn 'This gateway is restricted to your private Tailscale network. Do not expose port 9119 directly to the public internet.'
+    fi
     ;;
 esac
