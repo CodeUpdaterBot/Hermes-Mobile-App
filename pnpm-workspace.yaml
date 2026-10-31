@@ -1,0 +1,2 @@
+patchedDependencies:
+  '@novnc/novnc@1.7.0': patches/@novnc__novnc@1.7.0.patch
