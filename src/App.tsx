@@ -28,7 +28,8 @@ import { navDirectionFor, setNavDirection } from './nav-direction'
 import { haptic } from './haptics'
 import { connectAndSubmit, createGroup, createProfile, interruptSession, loadMessages, loadSnapshot, savedHermesEndpoint, setActiveHermesEndpoint, setProfileGroups, setServerRequestHandler, type LiveMessage, type LiveProfile, type LiveSession, type LiveUsage } from './hermes'
 import { reconcileMessages, TURN_SILENCE_MS } from './chat-reconcile'
-import { readWideLayout, saveWideLayout, WIDE_QUERY, type WideLayout } from './wide-layout'
+import { fitWideColumns, readWideLayout, saveWideLayout, THREE_COLUMN_MIN, WIDE_QUERY, type WideLayout } from './wide-layout'
+import { applyFoldState, bookColumns, FLAT, watchFoldState, type FoldState } from './fold-posture'
 import { parseClarifyQuestions } from './clarify'
 import { readNotificationPreferences, type BotActivity, type BotStage } from './bot-notifications'
 import { createNotificationSync, DEFAULT_BOT_NOTIFICATION_COLOR } from './notification-service'
@@ -506,7 +507,7 @@ export default function App() {
   // launches. The default hides the right column, so the conversation gets the space until the
   // pane is asked for; a stored choice always beats that default.
   const [layout, setLayout] = useState<WideLayout>(() => readWideLayout())
-  const { railCollapsed, contextCollapsed, railWidth, contextWidth } = layout
+  const { railCollapsed, contextCollapsed } = layout
   const updateLayout = useCallback((patch: Partial<WideLayout>) => {
     setLayout(current => {
       const next = { ...current, ...patch }
@@ -518,6 +519,9 @@ export default function App() {
   // The New Bot control is a menu, not a button: creating a Bot and starting a fresh chat
   // with an existing one are the two things a user means by "new" here.
   const [newBotMenuOpen, setNewBotMenuOpen] = useState(false)
+  // The inner screen's Bots rail carries the same New Chat / New Bot / New group choices as
+  // the cover screen's footer, which the unfolded layout otherwise hides behind an open chat.
+  const [railMenuOpen, setRailMenuOpen] = useState(false)
   const [newChatOpen, setNewChatOpen] = useState(false)
   const [newChatBusy, setNewChatBusy] = useState(false)
   const [newChatError, setNewChatError] = useState('')
@@ -554,6 +558,21 @@ export default function App() {
       orientation?.removeEventListener('change', read)
       observer?.disconnect()
     }
+  }, [])
+
+  // Half-folded postures (book / tabletop) are exposed to CSS on <html>, and book posture
+  // also pins the wide grid to the hinge so no column straddles the crease.
+  const [fold, setFold] = useState<FoldState>(FLAT)
+  const [viewportWidth, setViewportWidth] = useState(() => typeof window === 'undefined' ? 0 : window.innerWidth)
+  useEffect(() => watchFoldState(state => {
+    applyFoldState(state)
+    setFold(state)
+    setViewportWidth(window.innerWidth)
+  }), [])
+  useEffect(() => {
+    const read = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', read)
+    return () => window.removeEventListener('resize', read)
   }, [])
 
   // Widening while on the Bots list must not show a second copy of the roster in
@@ -763,7 +782,7 @@ export default function App() {
   // to the divider itself once the pointer is captured, so it cannot leak past release.
   function dragColumn(kind: 'rail' | 'context', event: { clientX: number; pointerId: number; currentTarget: HTMLButtonElement }) {
     const startX = event.clientX
-    const startWidth = (kind === 'rail' ? railWidth : contextWidth) ?? 296
+    const startWidth = (kind === 'rail' ? columns.rail : columns.context) || 296
     const handle = event.currentTarget
     handle.setPointerCapture(event.pointerId)
     let dragged = false
@@ -781,7 +800,7 @@ export default function App() {
       handle.removeEventListener('pointerup', onUp)
       handle.removeEventListener('pointercancel', onUp)
       if (dragged) return
-      if (kind === 'rail') updateLayout({ railCollapsed: !railCollapsed }); else updateLayout({ contextCollapsed: !contextCollapsed })
+      if (kind === 'rail') { if (columns.railHidden) showRail(); else updateLayout({ railCollapsed: true }) } else updateLayout({ contextCollapsed: !contextCollapsed })
     }
     handle.addEventListener('pointermove', onMove)
     handle.addEventListener('pointerup', onUp)
@@ -790,17 +809,31 @@ export default function App() {
 
   // The tri-fold workspace. Every screen renders in the middle pane, so opening a
   // Bot's settings no longer collapses the layout back to a single column.
-  return <div className={`wide-shell${railCollapsed ? ' rail-collapsed' : ''}${contextCollapsed ? ' context-collapsed' : ''}`}
-    style={railWidth === null && contextWidth === null ? undefined : {
-      gridTemplateColumns: `${railCollapsed ? 0 : railWidth ?? 296}px 7px minmax(340px,1fr) 7px ${contextCollapsed ? 0 : contextWidth ?? 296}px`,
-    }}>
-    {railCollapsed && <button className="wide-rail-reveal" onClick={() => updateLayout({ railCollapsed: false })} aria-label="Show Bots column"><ChevronRight size={13}/></button>}
-    {contextCollapsed && <button className="wide-context-reveal" onClick={() => updateLayout({ contextCollapsed: false })} aria-label="Show computer column"><ChevronLeft size={13}/></button>}
+  // Book posture: the Bots rail is the left page and the conversation the right page.
+  const bookGrid = fold.posture === 'book' && fold.hinge && !railCollapsed ? bookColumns(fold.hinge, viewportWidth) : null
+  const columns = fitWideColumns(layout, viewportWidth)
+  // On a screen too narrow for three columns the rail makes way for the computer column, so
+  // bringing either back closes the other rather than overflowing the screen.
+  const showRail = () => updateLayout(columns.railAutoHidden || (viewportWidth < THREE_COLUMN_MIN && !contextCollapsed)
+    ? { railCollapsed: false, contextCollapsed: true }
+    : { railCollapsed: false })
+  return <div className={`wide-shell${columns.railHidden ? ' rail-collapsed' : ''}${columns.contextHidden || bookGrid ? ' context-collapsed' : ''}${bookGrid ? ' book-posture' : ''}`}
+    style={{ gridTemplateColumns: bookGrid ?? columns.template }}>
+    {columns.railHidden && <button className="wide-rail-reveal" onClick={showRail} aria-label="Show Bots column"><ChevronRight size={13}/></button>}
+    {contextCollapsed && !bookGrid && <button className="wide-context-reveal" onClick={() => updateLayout({ contextCollapsed: false })} aria-label="Show computer column"><ChevronLeft size={13}/></button>}
 
     <aside className="wide-rail" aria-label="Bots">
       <header className="wide-rail-head">
         <b>Bots</b>
         <span className="wide-rail-actions">
+          <span className="new-bot-wrap">
+            {railMenuOpen && <div className="new-bot-menu rail-menu" role="menu">
+              <button role="menuitem" onClick={() => { setRailMenuOpen(false); setNewChatOpen(true) }}><MessageSquare size={15}/> New Chat</button>
+              <button role="menuitem" onClick={() => { setRailMenuOpen(false); setCreateOpen(true) }}><Plus size={15}/> New Bot</button>
+              <button role="menuitem" onClick={() => { setRailMenuOpen(false); setGroupError(''); setNewGroupOpen(true) }}><Users size={15}/> New group</button>
+            </div>}
+            <button className="round-control" onClick={() => setRailMenuOpen(value => !value)} aria-label="New chat, Bot or group" aria-haspopup="menu" aria-expanded={railMenuOpen}><Plus size={16}/></button>
+          </span>
           <button className="round-control" onClick={() => setSearching(value => !value)} aria-label="Search Bots"><Search size={16}/></button>
           <button className="round-control" onClick={() => setSettings(true)} aria-label="Settings"><SettingsIcon size={16}/></button>
         </span>

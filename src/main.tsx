@@ -16,6 +16,7 @@ import './connection-settings.css'
 import './edge-swipe.css'
 // Native-feel interaction layer: must load last so it refines every surface.
 import './motion.css'
+import './fold.css'
 
 // One capture-phase listener gives every control in the app its tactile
 // response; platforms without a vibration service degrade to a no-op.

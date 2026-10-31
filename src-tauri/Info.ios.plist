@@ -6,5 +6,22 @@
     <string>Hermes Mobile uses the microphone to turn your spoken prompts into editable text.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Hermes Mobile uses speech recognition to transcribe your spoken prompts before sending them to Hermes.</string>
+    <!-- Foldable iPhones (iPhone Duo) and iPad: rotate freely and allow Split View, so the
+         unfolded inner display gets the wide Bots + conversation layout in every orientation. -->
+    <key>UIRequiresFullScreen</key>
+    <false/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+      <string>UIInterfaceOrientationPortrait</string>
+      <string>UIInterfaceOrientationLandscapeLeft</string>
+      <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+      <string>UIInterfaceOrientationPortrait</string>
+      <string>UIInterfaceOrientationPortraitUpsideDown</string>
+      <string>UIInterfaceOrientationLandscapeLeft</string>
+      <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
   </dict>
 </plist>

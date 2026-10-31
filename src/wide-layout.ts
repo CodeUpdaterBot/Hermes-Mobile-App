@@ -19,8 +19,18 @@ export type WideLayout = {
 
 export const WIDE_LAYOUT_KEY = 'hermes-mobile-wide-layout'
 
-/** The viewport width that earns the tri-fold workspace (unfolded foldables, tablets). */
-export const WIDE_QUERY = '(min-width: 900px)'
+/**
+ * The viewport that earns the tri-fold workspace (unfolded foldables, tablets).
+ *
+ * 900px alone misses book-style foldables: an unfolded iPhone Duo is ~626pt wide and a Galaxy
+ * Z Fold with a larger Screen zoom drops well below 900. Any viewport that is at least 600px
+ * on BOTH axes is an unfolded/tablet surface (a phone is never that tall in landscape nor that
+ * wide in portrait), and the rail + conversation grid needs only ~600px.
+ */
+export const WIDE_QUERY = '(min-width: 900px), (min-width: 600px) and (min-height: 600px)'
+
+/** Mirrors WIDE_QUERY for callers (and tests) that have dimensions rather than a media query. */
+export const isWideViewport = (width: number, height: number) => width >= 900 || (width >= 600 && height >= 600)
 
 export const DEFAULT_WIDE_LAYOUT: WideLayout = {
   railWidth: null,
@@ -64,4 +74,44 @@ export function readWideLayout(store: ReadStore | undefined = typeof localStorag
 export function saveWideLayout(layout: WideLayout, store: WriteStore | undefined = typeof localStorage === 'undefined' ? undefined : localStorage): void {
   if (!store) return
   try { store.setItem(WIDE_LAYOUT_KEY, JSON.stringify(layout)) } catch { /* keep the in-memory value */ }
+}
+
+/** The conversation's minimum, the side columns' comfortable minimum and default, and both dividers. */
+export const MAIN_MIN = 340
+const SIDE_MIN = 248
+const SIDE_DEFAULT = 296
+const DIVIDERS = 14
+
+/** Narrowest viewport that shows the Bots rail, the conversation and the computer column together. */
+export const THREE_COLUMN_MIN = SIDE_MIN * 2 + MAIN_MIN + DIVIDERS
+
+export type WideColumns = {
+  rail: number
+  context: number
+  railHidden: boolean
+  contextHidden: boolean
+  /** The rail is hidden only because the computer column needs the room (not the user's choice). */
+  railAutoHidden: boolean
+  template: string
+}
+
+/**
+ * Fit the stored layout to the viewport. A Galaxy Z Fold7's inner screen (~757px) cannot hold
+ * all three columns, so there the open computer column takes the rail's place until it is closed;
+ * otherwise side columns shrink (never the conversation below MAIN_MIN) so nothing runs off-screen.
+ * The stored layout is not changed: the same choice comes back on a wider screen.
+ */
+export function fitWideColumns(layout: WideLayout, viewportWidth: number): WideColumns {
+  const contextHidden = layout.contextCollapsed
+  const railAutoHidden = !layout.railCollapsed && !contextHidden && viewportWidth < THREE_COLUMN_MIN
+  const railHidden = layout.railCollapsed || railAutoHidden
+  let rail = railHidden ? 0 : layout.railWidth ?? SIDE_DEFAULT
+  let context = contextHidden ? 0 : layout.contextWidth ?? SIDE_DEFAULT
+  const room = Math.max(0, viewportWidth - DIVIDERS - MAIN_MIN)
+  if (rail + context > room) {
+    const scale = room / (rail + context)
+    rail = Math.floor(rail * scale)
+    context = Math.floor(context * scale)
+  }
+  return { rail, context, railHidden, contextHidden, railAutoHidden, template: `${rail}px 7px minmax(${MAIN_MIN}px,1fr) 7px ${context}px` }
 }
