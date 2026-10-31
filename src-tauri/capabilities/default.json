@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default capabilities for the Hermes Mobile window.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "websocket:default"]
 }

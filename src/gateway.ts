@@ -11,7 +11,8 @@ export type GatewayEvent = {
 }
 
 type JsonRpcFrame = {
-  id?: number
+  /** Our own calls use numbers; Hermes's server→client requests use strings ("srq-…"). */
+  id?: number | string
   method?: string
   result?: unknown
   error?: { code?: number; message?: string; data?: GatewayPayload }
@@ -27,7 +28,8 @@ type Pending = {
 
 /** A request the host sends to this client (clarify, approvals). */
 export type ServerRequest = {
-  id: number
+  /** Echoed verbatim in the reply; Hermes sends string ids such as "srq-2b82b5f6bbed". */
+  id: number | string
   method: string
   params: GatewayPayload
 }
@@ -163,6 +165,21 @@ export class HermesGatewayClient {
       ready,
       new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Hermes Gateway did not announce readiness')), 15_000)),
     ])
+    this.advertiseCapabilities(socket)
+  }
+
+  /**
+   * Hermes only sends server→client requests (clarify, approval) to a connection that has said
+   * it answers them; without this every such request is failed fast — an approval is withdrawn
+   * and the command blocked. Sent before open() resolves, so it precedes any prompt on the wire.
+   * Older builds without the method answer an error, which is ignored.
+   */
+  private advertiseCapabilities(socket: WebSocket) {
+    if (socket.readyState !== WebSocket.OPEN) return
+    const id = this.nextId++
+    const timer = window.setTimeout(() => this.pending.delete(id), 30_000)
+    this.pending.set(id, { method: 'client.capabilities', resolve: () => {}, reject: () => {}, timer })
+    socket.send(`${JSON.stringify({ jsonrpc: '2.0', id, method: 'client.capabilities', params: { server_requests: true } })}\n`)
   }
 
   private handleMessage(raw: string, generation: number) {
@@ -184,7 +201,7 @@ export class HermesGatewayClient {
 
       // A server→client request carries both an id and a method; a reply to one of
       // our own calls carries an id and no method.
-      if (typeof frame.id === 'number' && typeof frame.method === 'string') {
+      if ((typeof frame.id === 'number' || typeof frame.id === 'string') && typeof frame.method === 'string') {
         const request: ServerRequest = { id: frame.id, method: frame.method, params: frame.params ?? {} }
         void this.answerRequest(request)
         continue
