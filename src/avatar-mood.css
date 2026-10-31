@@ -1,0 +1,96 @@
+/* Bot faces come alive. Three nested layers so motions combine instead of fighting:
+   .bot-eyes (gaze: where the Bot looks) > .bot-eye (blink / eye shape) > shape (winks).
+   Everything moves INSIDE the avatar's SVG, which clips, so avatar sizes never change. */
+.bot-avatar-svg .bot-eyes,
+.bot-avatar-svg .bot-eye,
+.bot-avatar-svg .bot-eye > *{transform-box:fill-box;transform-origin:50% 50%}
+
+/* Idle: each Bot blinks on its own rhythm (--blink-* from eyeRhythm), now and then glances
+   around, and occasionally winks. */
+.bot-avatar-svg .bot-eye{animation:bot-blink var(--blink-period,5s) ease-in-out var(--blink-delay,0s) infinite}
+.bot-avatar-svg .bot-eyes{animation:bot-glance var(--glance-period,12s) ease-in-out var(--glance-delay,0s) infinite}
+.bot-avatar-svg .bot-eye-r > *{animation:bot-wink calc(var(--glance-period,12s) * 2.7) ease-in-out var(--glance-delay,0s) infinite}
+
+@keyframes bot-blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.08)}}
+@keyframes bot-glance{
+  0%,38%,100%{transform:translate(0,0)}
+  42%,52%{transform:translate(-16%,2%)}
+  56%,70%{transform:translate(0,0)}
+  74%,84%{transform:translate(14%,-6%)}
+  88%{transform:translate(0,0)}
+}
+@keyframes bot-wink{0%,70%,77%,100%{transform:scaleY(1)}72%,75%{transform:scaleY(.1)}}
+
+/* Sleepy: nobody has talked to it for a while. Heavy lids, a slow droop and the odd stretch. */
+.bot-avatar-svg[data-mood='sleepy'] .bot-eye{animation:bot-sleepy 7s ease-in-out var(--blink-delay,0s) infinite}
+.bot-avatar-svg[data-mood='sleepy'] .bot-eyes{animation:none;transform:translateY(12%)}
+.bot-avatar-svg[data-mood='sleepy'] .bot-eye-r > *{animation:none}
+@keyframes bot-sleepy{
+  0%,100%{transform:scaleY(.34)}
+  40%{transform:scaleY(.22)}
+  55%{transform:scaleY(.08)}
+  70%{transform:scaleY(.6)}
+  78%{transform:scaleY(.34)}
+}
+
+/* Eager: it replied and you haven't looked yet. Bright eyes toward its message, double blinks. */
+.bot-avatar-svg[data-mood='eager'] .bot-eyes{animation:bot-eager 2.2s ease-in-out infinite}
+.bot-avatar-svg[data-mood='eager'] .bot-eye{animation:bot-double-blink 3.1s ease-in-out var(--blink-delay,0s) infinite}
+@keyframes bot-eager{0%,100%{transform:translate(12%,-4%)}50%{transform:translate(12%,-14%)}}
+@keyframes bot-double-blink{0%,80%,86%,100%{transform:scaleY(1.06)}83%,89%{transform:scaleY(.1)}}
+
+/* Thinking: eyes drift up and to the side while it ponders. */
+.bot-avatar-svg[data-mood='thinking'] .bot-eyes{animation:bot-ponder 3.2s ease-in-out infinite alternate}
+.bot-avatar-svg[data-mood='thinking'] .bot-eye{animation:bot-blink 3.6s ease-in-out infinite}
+.bot-avatar-svg[data-mood='thinking'] .bot-eye-r > *{animation:none}
+@keyframes bot-ponder{0%{transform:translate(14%,-16%)}45%{transform:translate(14%,-16%)}100%{transform:translate(-10%,-18%)}}
+
+/* Working: a tool is running, so the eyes scan back and forth. */
+.bot-avatar-svg[data-mood='working'] .bot-eyes{animation:bot-scan 1.1s ease-in-out infinite alternate}
+.bot-avatar-svg[data-mood='working'] .bot-eye{animation:bot-focus 4s ease-in-out infinite}
+.bot-avatar-svg[data-mood='working'] .bot-eye-r > *{animation:none}
+@keyframes bot-scan{0%{transform:translate(-18%,0)}100%{transform:translate(18%,0)}}
+@keyframes bot-focus{0%,90%,100%{transform:scaleY(.82)}94%{transform:scaleY(.1)}}
+
+/* Phone: it is operating your phone, so it looks down at the screen and follows its taps. */
+.bot-avatar-svg[data-mood='phone'] .bot-eyes{animation:bot-phone .9s ease-in-out infinite alternate}
+.bot-avatar-svg[data-mood='phone'] .bot-eye{animation:bot-focus 3.4s ease-in-out infinite}
+.bot-avatar-svg[data-mood='phone'] .bot-eye-r > *{animation:none}
+@keyframes bot-phone{0%{transform:translate(-10%,18%)}100%{transform:translate(10%,18%)}}
+
+/* Writing: the reply is streaming, so the eyes read along a line and jump back. */
+.bot-avatar-svg[data-mood='writing'] .bot-eyes{animation:bot-read 1.5s linear infinite}
+.bot-avatar-svg[data-mood='writing'] .bot-eye{animation:bot-blink 4.4s ease-in-out infinite}
+.bot-avatar-svg[data-mood='writing'] .bot-eye-r > *{animation:none}
+@keyframes bot-read{0%{transform:translate(-16%,4%)}82%{transform:translate(16%,4%)}100%{transform:translate(-16%,8%)}}
+
+/* Waiting: it needs your approval, so wide eyes look straight at you. */
+.bot-avatar-svg[data-mood='waiting'] .bot-eyes{animation:bot-plead 1.6s ease-in-out infinite}
+.bot-avatar-svg[data-mood='waiting'] .bot-eye{animation:bot-wide 2.8s ease-in-out infinite}
+.bot-avatar-svg[data-mood='waiting'] .bot-eye-r > *{animation:none}
+@keyframes bot-plead{0%,100%{transform:translate(0,6%)}50%{transform:translate(0,2%)}}
+@keyframes bot-wide{0%,88%,100%{transform:scale(1.2)}93%{transform:scale(1.2,.12)}}
+
+/* Happy: the turn just finished. A pleased squint, then a wink. */
+.bot-avatar-svg[data-mood='happy'] .bot-eyes{animation:bot-hop .6s ease-out 2}
+.bot-avatar-svg[data-mood='happy'] .bot-eye{animation:bot-squint 3.5s ease-in-out forwards}
+.bot-avatar-svg[data-mood='happy'] .bot-eye-r > *{animation:bot-wink-once 3.5s ease-in-out forwards}
+@keyframes bot-hop{0%,100%{transform:translateY(0)}45%{transform:translateY(-12%)}}
+@keyframes bot-squint{0%{transform:scaleY(1)}12%,70%{transform:scaleY(.36) translateY(-8%)}100%{transform:scaleY(1)}}
+@keyframes bot-wink-once{0%,74%,90%,100%{transform:scaleY(1)}80%,84%{transform:scaleY(.1)}}
+
+/* Sad: something went wrong. Droopy eyes that look down. */
+.bot-avatar-svg[data-mood='sad'] .bot-eyes{animation:none;transform:translateY(16%)}
+.bot-avatar-svg[data-mood='sad'] .bot-eye{animation:bot-droop 5s ease-in-out infinite}
+.bot-avatar-svg[data-mood='sad'] .bot-eye-r > *{animation:none}
+@keyframes bot-droop{0%,88%,100%{transform:scaleY(.68)}93%{transform:scaleY(.1)}}
+
+/* A tap on a Bot gets a wink back. */
+.bot-row:active .bot-avatar-svg .bot-eye-r > *,
+.chat-identity-button:active .bot-avatar-svg .bot-eye-r > *,
+.bot-avatar-svg:active .bot-eye-r > *{animation:bot-wink-tap .45s ease-in-out}
+@keyframes bot-wink-tap{0%,100%{transform:scaleY(1)}35%,60%{transform:scaleY(.1)}}
+
+@media (prefers-reduced-motion:reduce){
+  .bot-avatar-svg .bot-eyes,.bot-avatar-svg .bot-eye,.bot-avatar-svg .bot-eye > *{animation:none!important}
+}
