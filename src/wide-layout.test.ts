@@ -1,6 +1,51 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_WIDE_LAYOUT, parseWideLayout, readWideLayout, saveWideLayout, WIDE_LAYOUT_KEY, type WideLayout } from './wide-layout'
+import { DEFAULT_WIDE_LAYOUT, fitWideColumns, MAIN_MIN, parseWideLayout, readWideLayout, saveWideLayout, THREE_COLUMN_MIN, WIDE_LAYOUT_KEY, type WideLayout } from './wide-layout'
+
+const FOLD7_INNER = 757 // CSS px on a Galaxy Z Fold7's inner screen at the default display size
+const fits = (columns: { rail: number; context: number }, width: number) => columns.rail + columns.context + MAIN_MIN + 14 <= width
+
+describe('fitting the columns to the screen', () => {
+  // Measured on a real Fold7: rail 266 + chat 340 + computer 460 ran 323px off the right edge.
+  it('gives the open computer column the rail\'s place on a Galaxy Z Fold7 inner screen', () => {
+    const stored: WideLayout = { railWidth: 266, contextWidth: 460, railCollapsed: false, contextCollapsed: false }
+    const columns = fitWideColumns(stored, FOLD7_INNER)
+    expect(columns.railHidden).toBe(true)
+    expect(columns.railAutoHidden).toBe(true)
+    expect(columns.contextHidden).toBe(false)
+    expect(fits(columns, FOLD7_INNER)).toBe(true)
+    expect(columns.context).toBeGreaterThanOrEqual(248)
+  })
+
+  it('keeps the rail and conversation when the computer column is closed', () => {
+    const columns = fitWideColumns({ ...DEFAULT_WIDE_LAYOUT, railWidth: 460 }, FOLD7_INNER)
+    expect(columns.railHidden).toBe(false)
+    expect(columns.railAutoHidden).toBe(false)
+    expect(fits(columns, FOLD7_INNER)).toBe(true)
+  })
+
+  it('shows all three columns once they fit, shrinking saved widths rather than overflowing', () => {
+    const stored: WideLayout = { railWidth: 460, contextWidth: 460, railCollapsed: false, contextCollapsed: false }
+    for (const width of [THREE_COLUMN_MIN, 900, 1024]) {
+      const columns = fitWideColumns(stored, width)
+      expect(columns.railHidden).toBe(false)
+      expect(columns.contextHidden).toBe(false)
+      expect(fits(columns, width)).toBe(true)
+    }
+    const roomy = fitWideColumns(stored, 1600)
+    expect([roomy.rail, roomy.context]).toEqual([460, 460])
+  })
+
+  it('respects a rail the user collapsed and never reports it as auto-hidden', () => {
+    const columns = fitWideColumns({ ...DEFAULT_WIDE_LAYOUT, railCollapsed: true, contextCollapsed: false }, FOLD7_INNER)
+    expect(columns.railHidden).toBe(true)
+    expect(columns.railAutoHidden).toBe(false)
+  })
+
+  it('uses the design default width when nothing was dragged', () => {
+    expect(fitWideColumns({ ...DEFAULT_WIDE_LAYOUT, contextCollapsed: false }, 1200).template).toBe('296px 7px minmax(340px,1fr) 7px 296px')
+  })
+})
 
 describe('wide layout defaults', () => {
   // The right column is a destination, not a default: the conversation gets the space until
