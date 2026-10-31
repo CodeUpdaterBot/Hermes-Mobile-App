@@ -3,4 +3,6 @@
     <!-- Android 13+ gates notifications behind a runtime permission. The host
          app does not declare this, so the plugin manifest contributes it. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Android 16 Live Updates (Samsung Now Bar) for a Bot that is working. Normal permission. -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
 </manifest>

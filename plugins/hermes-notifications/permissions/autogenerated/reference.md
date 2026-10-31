@@ -11,6 +11,9 @@ Default permissions for the Hermes notifications plugin
 - `allow-finish`
 - `allow-clear`
 - `allow-clearAll`
+- `allow-approval`
+- `allow-register-listener`
+- `allow-remove-listener`
 
 ## Permission Table
 
@@ -20,6 +23,32 @@ Default permissions for the Hermes notifications plugin
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`hermes-notifications:allow-approval`
+
+</td>
+<td>
+
+Enables the approval command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hermes-notifications:deny-approval`
+
+</td>
+<td>
+
+Denies the approval command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>
@@ -173,6 +202,58 @@ Enables the permissionState command without any pre-configured scope.
 <td>
 
 Denies the permissionState command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hermes-notifications:allow-register-listener`
+
+</td>
+<td>
+
+Enables the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hermes-notifications:deny-register-listener`
+
+</td>
+<td>
+
+Denies the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hermes-notifications:allow-remove-listener`
+
+</td>
+<td>
+
+Enables the remove_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hermes-notifications:deny-remove-listener`
+
+</td>
+<td>
+
+Denies the remove_listener command without any pre-configured scope.
 
 </td>
 </tr>

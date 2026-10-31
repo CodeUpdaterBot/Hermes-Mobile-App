@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { addPluginListener, invoke } from '@tauri-apps/api/core'
 
 import { withDeadline } from './deadline'
 import { splitDataUrl } from './avatar-raster'
@@ -75,6 +75,32 @@ export function ensurePermissionWithDeadline(ms = PERMISSION_WAIT_MS): Promise<P
 
 export function clearAllNotifications(): Promise<unknown> {
   return call('clearAll')
+}
+
+export type ApprovalNotification = { requestId: string; bot: string; command: string; description: string }
+
+/** Heads-up/lock-screen prompt with Allow once / Deny actions for an approval the host is waiting on. */
+export function postApprovalNotification(approval: ApprovalNotification): Promise<unknown> {
+  return call('approval', approval)
+}
+
+export function clearApprovalNotification(requestId: string): Promise<unknown> {
+  // Approval notifications are keyed `approval:<request_id>` natively, so the ordinary clear
+  // command removes them (and goes through the Rust layer that unwraps `payload`).
+  return call('clear', { id: `approval:${requestId}` })
+}
+
+export type ApprovalAction = { requestId: string; choice: string }
+
+/** Answers tapped on an approval notification; resolves to an unsubscribe function. */
+export async function listenForApprovalActions(listener: (action: ApprovalAction) => void): Promise<() => void> {
+  if (!notificationsAvailable()) return () => {}
+  try {
+    const handle = await addPluginListener<ApprovalAction>('hermes-notifications', 'approvalAction', listener)
+    return () => { void handle.unregister() }
+  } catch {
+    return () => {}
+  }
 }
 
 export function preferences(): NotificationPreferences {

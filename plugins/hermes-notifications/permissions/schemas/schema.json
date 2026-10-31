@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the approval command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-approval",
+          "markdownDescription": "Enables the approval command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the approval command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-approval",
+          "markdownDescription": "Denies the approval command without any pre-configured scope."
+        },
+        {
           "description": "Enables the clear command without any pre-configured scope.",
           "type": "string",
           "const": "allow-clear",
@@ -367,6 +379,30 @@
           "markdownDescription": "Denies the permissionState command without any pre-configured scope."
         },
         {
+          "description": "Enables the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-register-listener",
+          "markdownDescription": "Enables the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-register-listener",
+          "markdownDescription": "Denies the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-listener",
+          "markdownDescription": "Enables the remove_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-listener",
+          "markdownDescription": "Denies the remove_listener command without any pre-configured scope."
+        },
+        {
           "description": "Enables the upsert command without any pre-configured scope.",
           "type": "string",
           "const": "allow-upsert",
@@ -379,10 +415,10 @@
           "markdownDescription": "Denies the upsert command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the Hermes notifications plugin\n#### This default permission set includes:\n\n- `allow-ensurePermission`\n- `allow-permissionState`\n- `allow-notificationPermissionResult`\n- `allow-upsert`\n- `allow-finish`\n- `allow-clear`\n- `allow-clearAll`",
+          "description": "Default permissions for the Hermes notifications plugin\n#### This default permission set includes:\n\n- `allow-ensurePermission`\n- `allow-permissionState`\n- `allow-notificationPermissionResult`\n- `allow-upsert`\n- `allow-finish`\n- `allow-clear`\n- `allow-clearAll`\n- `allow-approval`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the Hermes notifications plugin\n#### This default permission set includes:\n\n- `allow-ensurePermission`\n- `allow-permissionState`\n- `allow-notificationPermissionResult`\n- `allow-upsert`\n- `allow-finish`\n- `allow-clear`\n- `allow-clearAll`"
+          "markdownDescription": "Default permissions for the Hermes notifications plugin\n#### This default permission set includes:\n\n- `allow-ensurePermission`\n- `allow-permissionState`\n- `allow-notificationPermissionResult`\n- `allow-upsert`\n- `allow-finish`\n- `allow-clear`\n- `allow-clearAll`\n- `allow-approval`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

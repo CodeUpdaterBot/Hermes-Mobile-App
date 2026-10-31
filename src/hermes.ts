@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 
 import { HermesGatewayClient, type GatewayEvent, type ServerRequest, type ServerRequestReply } from './gateway'
+import { gatewaySocketFactory } from './native-websocket'
 import type { RosterProfile } from './live-model'
 import type { DisplayObserve, DisplayStatus } from './display'
 
@@ -71,24 +72,41 @@ export function activeHermesEndpoint(): string { return activeHermes }
 
 const gateways = new Map<string, HermesGatewayClient>()
 const resolvedSessions = new Map<string, string>()
+let serverRequestHandler: ((request: ServerRequest) => Promise<ServerRequestReply>) | undefined
 
 function gateway(baseUrl = activeHermes) {
   let client = gateways.get(baseUrl)
   if (!client) {
-    client = new HermesGatewayClient(() => invoke<string>('hermes_ws_url', { baseUrl }))
+    client = new HermesGatewayClient(() => invoke<string>('hermes_ws_url', { baseUrl }), gatewaySocketFactory)
+    client.setRequestHandler(serverRequestHandler)
     gateways.set(baseUrl, client)
   }
   return client
 }
 
 /**
- * Answer host-initiated requests (the `clarify` tool) for a given host.
+ * Answer host-initiated requests (clarify, approvals) on every host's connection.
  *
- * Registered on the shared client because the socket is per-host and durable: a
- * second connection would not receive the question at all.
+ * Registered on each shared client because the socket is per-host and durable: a
+ * second connection would not receive the question at all. It applies to clients
+ * created later too — pairing a remote gateway after launch creates a new client,
+ * which must not come up without a handler (Hermes would then withdraw approvals).
  */
-export function setServerRequestHandler(handler?: (request: ServerRequest) => Promise<ServerRequestReply>, baseUrl = activeHermes): void {
-  gateway(baseUrl).setRequestHandler(handler)
+export function setServerRequestHandler(handler?: (request: ServerRequest) => Promise<ServerRequestReply>): void {
+  serverRequestHandler = handler
+  for (const client of gateways.values()) client.setRequestHandler(handler)
+}
+
+/**
+ * Server requests name the LIVE gateway session ("f69355c7"); the roster knows stored session
+ * ids. Map a live id back to the stored chat it was resumed from, when this app resumed it.
+ */
+export function storedSessionForLiveId(liveId: string, baseUrl = activeHermes): string | null {
+  const prefix = `${baseUrl}:`
+  for (const [key, value] of resolvedSessions) {
+    if (value === liveId && key.startsWith(prefix)) return key.slice(prefix.length)
+  }
+  return null
 }
 
 async function rpcCall<T>(method: string, params: Record<string, unknown>, baseUrl = activeHermes): Promise<T> {

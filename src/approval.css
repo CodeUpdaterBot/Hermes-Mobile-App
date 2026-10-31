@@ -1,0 +1,15 @@
+.approval-sheet{position:fixed;left:50%;bottom:calc(12px + env(safe-area-inset-bottom));transform:translateX(-50%);width:min(560px,calc(100vw - 24px));z-index:60;border:1px solid color-mix(in srgb,#f0a43a 45%,var(--border));border-radius:16px;background:var(--panel);color:var(--text);box-shadow:0 -10px 32px rgba(0,0,0,.42);padding:14px 14px 12px;animation:sheet-rise var(--motion-medium) var(--ease-out) backwards}
+.approval-sheet header{display:flex;align-items:flex-start;gap:10px}
+.approval-sheet header svg{flex:0 0 auto;margin-top:2px;color:#f0a43a}
+.approval-sheet header div{flex:1 1 auto;min-width:0}
+.approval-sheet h2{margin:0;font-size:15px;line-height:1.3}
+.approval-sheet p{margin:2px 0 0;font-size:13px;opacity:.75}
+.approval-queue{flex:0 0 auto;font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;background:color-mix(in srgb,#f0a43a 22%,transparent);color:#f0a43a}
+.approval-sheet pre{margin:10px 0 0;max-height:30vh;overflow:auto;padding:10px 12px;border-radius:10px;background:rgba(0,0,0,.35);font-size:12.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+.approval-sheet footer{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:12px}
+.approval-sheet footer button{min-height:40px}
+
+/* Book posture: keep the sheet on the right page, clear of the hinge. */
+.wide-shell.book-posture .approval-sheet{left:calc(var(--hinge-x,50vw) + var(--hinge-width,0px) + 12px);right:12px;width:auto;transform:none}
+/* Tabletop: the sheet belongs on the flat half, below the crease. */
+html[data-posture='tabletop'] .approval-sheet{max-height:calc(100dvh - var(--hinge-y,50dvh) - var(--hinge-height,0px) - 24px);overflow:auto}

@@ -11,7 +11,8 @@ export type GatewayEvent = {
 }
 
 type JsonRpcFrame = {
-  id?: number
+  /** Our own calls use numbers; Hermes's server→client requests use strings ("srq-…"). */
+  id?: number | string
   method?: string
   result?: unknown
   error?: { code?: number; message?: string; data?: GatewayPayload }
@@ -27,9 +28,12 @@ type Pending = {
 
 /** A request the host sends to this client (clarify, approvals). */
 export type ServerRequest = {
-  id: number
+  /** Echoed verbatim in the reply; Hermes sends string ids such as "srq-2b82b5f6bbed". */
+  id: number | string
   method: string
   params: GatewayPayload
+  /** The host owns the prompt; a `request.cancel` (answered elsewhere, timed out) aborts it. */
+  signal?: AbortSignal
 }
 
 export type ServerRequestReply =
@@ -108,6 +112,7 @@ export class HermesGatewayClient {
   private readonly activeTurnCancels = new Map<string, () => void>()
   private globalListener?: (event: GatewayEvent) => void
   private requestHandler?: (request: ServerRequest) => Promise<ServerRequestReply>
+  private readonly openRequests = new Map<number | string, AbortController>()
 
   constructor(
     private readonly urlFactory: () => Promise<string>,
@@ -163,6 +168,21 @@ export class HermesGatewayClient {
       ready,
       new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Hermes Gateway did not announce readiness')), 15_000)),
     ])
+    this.advertiseCapabilities(socket)
+  }
+
+  /**
+   * Hermes only sends server→client requests (clarify, approval) to a connection that has said
+   * it answers them; without this every such request is failed fast — an approval is withdrawn
+   * and the command blocked. Sent before open() resolves, so it precedes any prompt on the wire.
+   * Older builds without the method answer an error, which is ignored.
+   */
+  private advertiseCapabilities(socket: WebSocket) {
+    if (socket.readyState !== WebSocket.OPEN) return
+    const id = this.nextId++
+    const timer = window.setTimeout(() => this.pending.delete(id), 30_000)
+    this.pending.set(id, { method: 'client.capabilities', resolve: () => {}, reject: () => {}, timer })
+    socket.send(`${JSON.stringify({ jsonrpc: '2.0', id, method: 'client.capabilities', params: { server_requests: true } })}\n`)
   }
 
   private handleMessage(raw: string, generation: number) {
@@ -175,6 +195,10 @@ export class HermesGatewayClient {
         const event = parseGatewayEvent(frame.params)
         if (!event) continue
         if (event.type === 'gateway.ready') this.readyResolve?.()
+        // The host withdrew a prompt it sent us (another surface answered, timeout, interrupt).
+        if (event.type === 'request.cancel' && (typeof event.payload.id === 'number' || typeof event.payload.id === 'string')) {
+          this.openRequests.get(event.payload.id)?.abort(typeof event.payload.reason === 'string' ? event.payload.reason : 'cancelled')
+        }
         this.globalListener?.(event)
         if (event.sessionId) {
           for (const listener of this.sessionListeners.get(event.sessionId) ?? []) listener(event)
@@ -184,8 +208,10 @@ export class HermesGatewayClient {
 
       // A server→client request carries both an id and a method; a reply to one of
       // our own calls carries an id and no method.
-      if (typeof frame.id === 'number' && typeof frame.method === 'string') {
-        const request: ServerRequest = { id: frame.id, method: frame.method, params: frame.params ?? {} }
+      if ((typeof frame.id === 'number' || typeof frame.id === 'string') && typeof frame.method === 'string') {
+        const controller = new AbortController()
+        this.openRequests.set(frame.id, controller)
+        const request: ServerRequest = { id: frame.id, method: frame.method, params: frame.params ?? {}, signal: controller.signal }
         void this.answerRequest(request)
         continue
       }
@@ -206,14 +232,20 @@ export class HermesGatewayClient {
    * its timeout, so an unhandled method is refused explicitly instead of ignored.
    */
   private async answerRequest(request: ServerRequest) {
-    const socket = this.socket
-    if (!socket || socket.readyState !== WebSocket.OPEN) return
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) { this.openRequests.delete(request.id); return }
     let reply: ServerRequestReply
     try {
       reply = this.requestHandler ? await this.requestHandler(request) : { error: { code: -32601, message: `Method not found: ${request.method}` } }
     } catch (reason) {
       reply = { error: { code: -32603, message: reason instanceof Error ? reason.message : String(reason) } }
+    } finally {
+      this.openRequests.delete(request.id)
     }
+    // A withdrawn request is already settled on the host; answering it could only confuse the queue.
+    if (request.signal?.aborted) return
+    // Re-read the socket: a slow human answer can outlive the connection the request arrived on.
+    const socket = this.socket
+    if (!socket || socket.readyState !== WebSocket.OPEN) return
     socket.send(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, ...reply })}\n`)
   }
 
@@ -221,6 +253,9 @@ export class HermesGatewayClient {
     if (generation !== this.generation) return
     this.generation += 1
     this.socket = null
+    // The host replays still-open prompts to the next connection with fresh ids.
+    for (const controller of this.openRequests.values()) controller.abort('connection_closed')
+    this.openRequests.clear()
     const error = new GatewayRpcError('connection', 'Hermes Gateway connection closed', undefined, { reason: 'connection_closed' })
     this.readyReject?.(error)
     this.readyResolve = null
