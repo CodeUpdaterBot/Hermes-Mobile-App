@@ -14,6 +14,7 @@ import './appearance-picker.css'
 import './theme.css'
 import './connection-settings.css'
 import './edge-swipe.css'
+import './approval.css'
 // Native-feel interaction layer: must load last so it refines every surface.
 import './motion.css'
 

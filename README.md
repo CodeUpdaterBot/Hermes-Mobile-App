@@ -74,6 +74,8 @@ pnpm tauri ios dev
 - **Bot and Session views:** Bots are profile-owned canonical chats; Sessions is the all-profile runtime session projection.
 - **Mobile-native controls:** Pull-to-refresh, attachment routing through Hermes, live skill completion, themes, profile settings, and cross-profile scheduled tasks.
 - **Wide workspace:** Unfolded foldables, tablets and iPad get a three-pane layout — the Bots rail, the conversation, and the Bot's computer and routines — with draggable, collapsible columns that remember your arrangement per device.
+- **Command approvals:** When a Bot wants to run a dangerous command, Hermes asks the phone. An in-app sheet offers exactly the scopes the host allows (Allow once / for this session / always / Deny); with the app in the background an Android notification offers **Allow once** and **Deny** from the shade, lock screen or cover screen. Prompts answered elsewhere or timed out by the host are withdrawn automatically.
+- **Live Updates:** Working Bots request Android 16 promoted-ongoing status, which One UI 8 shows in Samsung's Now Bar.
 - **Multi-Bot group chats:** Talk to several Bots in one conversation, with each reply attributed to its member, streamed live, and restored when you come back.
 - **Secure pairing readiness:** Security & Pairing uses the real Hermes `/api/status` discovery check for a supplied Tailscale/HTTPS gateway URL and provides the safe Android connection model. It deliberately does not collect or persist a credential until the Android/iOS native secure-storage token/OAuth flow is wired.
 

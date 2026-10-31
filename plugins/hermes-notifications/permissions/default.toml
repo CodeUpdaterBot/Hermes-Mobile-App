@@ -8,4 +8,7 @@ permissions = [
   "allow-finish",
   "allow-clear",
   "allow-clearAll",
+  "allow-approval",
+  "allow-register-listener",
+  "allow-remove-listener",
 ]

@@ -97,6 +97,17 @@ export function setServerRequestHandler(handler?: (request: ServerRequest) => Pr
   for (const client of gateways.values()) client.setRequestHandler(handler)
 }
 
+/**
+ * Server requests name the LIVE gateway session ("f69355c7"); the roster knows stored session
+ * ids. Map a live id back to the stored chat it was resumed from, when this app resumed it.
+ */
+export function storedSessionForLiveId(liveId: string, baseUrl = activeHermes): string | null {
+  const prefix = `${baseUrl}:`
+  for (const [key, value] of resolvedSessions) {
+    if (value === liveId && key.startsWith(prefix)) return key.slice(prefix.length)
+  }
+  return null
+}
 
 async function rpcCall<T>(method: string, params: Record<string, unknown>, baseUrl = activeHermes): Promise<T> {
   return gateway(baseUrl).call<T>(method, params)

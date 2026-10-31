@@ -55,9 +55,15 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
   companion object {
     private const val RUNNING_CHANNEL = "hermes-bots-running"
     private const val DONE_CHANNEL = "hermes-bots-done"
+    private const val APPROVAL_CHANNEL = "hermes-approvals"
     private const val GROUP_KEY = "app.hermes.mobile.BOTS"
     private const val REQUEST_CODE = 4711
     private const val PREFS = "hermes-notifications"
+
+    /** Android 16 promotes ongoing notifications carrying this extra to Live Updates (Samsung Now Bar). */
+    private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
+    private const val EXTRA_APPROVAL_REQUEST = "app.hermes.mobile.APPROVAL_REQUEST"
+    private const val EXTRA_APPROVAL_CHOICE = "app.hermes.mobile.APPROVAL_CHOICE"
 
     /** Android 13 introduced a runtime notification permission. */
     private const val POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS"
@@ -87,6 +93,15 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
   }
 
   @InvokeArg
+  class ApprovalArgs {
+    /** The approval queue's request_id; the action answers by it. */
+    lateinit var requestId: String
+    var bot: String = "Hermes"
+    var command: String = ""
+    var description: String = ""
+  }
+
+  @InvokeArg
   class FinishArgs {
     lateinit var id: String
     var bot: String = "Hermes"
@@ -112,6 +127,11 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
     system.createNotificationChannel(
       NotificationChannel(DONE_CHANNEL, "Bot results", NotificationManager.IMPORTANCE_DEFAULT).apply {
         description = "A Bot finished or needs attention"
+      }
+    )
+    system.createNotificationChannel(
+      NotificationChannel(APPROVAL_CHANNEL, "Approvals", NotificationManager.IMPORTANCE_HIGH).apply {
+        description = "A Bot is waiting for you to allow or deny a command"
       }
     )
   }
@@ -268,6 +288,8 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
       .setOngoing(args.ongoing && args.running)
       .setProgress(100, args.percent.coerceIn(0, 100), false)
       .setSilent(true)
+    // Live Update / Now Bar: only a running, ongoing notification may ask for promotion.
+    builder.extras.putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, args.ongoing && args.running)
     post(args.id, builder)
     if (args.running) {
       setActive(args.id, true)
@@ -300,6 +322,52 @@ class HermesNotificationsPlugin(private val activity: android.app.Activity) : Pl
     setActive(args.id, false)
     dropSummaryIfIdle()
     invoke.resolve(JSObject().apply { put("ok", true) })
+  }
+
+  private fun approvalActionIntent(requestId: String, choice: String): PendingIntent? {
+    val launch = activity.packageManager.getLaunchIntentForPackage(activity.packageName) ?: return null
+    launch.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+    launch.putExtra(EXTRA_APPROVAL_REQUEST, requestId)
+    launch.putExtra(EXTRA_APPROVAL_CHOICE, choice)
+    // A distinct request code per (request, choice) keeps the two actions' extras apart.
+    val code = ("$requestId|$choice").hashCode() and 0x0FFFFFFF
+    return PendingIntent.getActivity(activity, code, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+  }
+
+  /** A Bot is blocked on a dangerous command; answer it from the shade, lock screen or cover screen. */
+  @Command
+  fun approval(invoke: Invoke) {
+    val args = invoke.parseArgs(ApprovalArgs::class.java)
+    ensureChannels()
+    val body = args.command.ifBlank { args.description }
+    val builder = NotificationCompat.Builder(activity, APPROVAL_CHANNEL)
+      .setSmallIcon(R.drawable.ic_hermes_notification)
+      .setContentTitle("${args.bot} needs approval")
+      .setContentText(body)
+      .setStyle(NotificationCompat.BigTextStyle().bigText(if (args.description.isNotBlank() && args.command.isNotBlank()) "${args.description}\n\n${args.command}" else body))
+      .setCategory(NotificationCompat.CATEGORY_REMINDER)
+      .setPriority(NotificationCompat.PRIORITY_HIGH)
+      .setContentIntent(contentIntent())
+      .setAutoCancel(true)
+      // A command line can carry secrets; keep it off the lock screen until unlocked.
+      .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+    approvalActionIntent(args.requestId, "once")?.let { builder.addAction(0, "Allow once", it) }
+    approvalActionIntent(args.requestId, "deny")?.let { builder.addAction(0, "Deny", it) }
+    post("approval:${args.requestId}", builder)
+    invoke.resolve(JSObject().apply { put("ok", true) })
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    val requestId = intent.getStringExtra(EXTRA_APPROVAL_REQUEST) ?: return
+    val choice = intent.getStringExtra(EXTRA_APPROVAL_CHOICE) ?: return
+    intent.removeExtra(EXTRA_APPROVAL_REQUEST)
+    intent.removeExtra(EXTRA_APPROVAL_CHOICE)
+    manager.cancel(notificationId("approval:$requestId"))
+    trigger("approvalAction", JSObject().apply {
+      put("requestId", requestId)
+      put("choice", choice)
+    })
   }
 
   @Command
