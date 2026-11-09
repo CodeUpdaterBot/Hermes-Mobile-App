@@ -1,3 +1,4 @@
+mod gateway_security;
 mod remote_auth;
 
 use std::time::Duration;
@@ -10,12 +11,11 @@ fn server_origin(base_url: &str) -> String {
 }
 
 fn session_token(client: &reqwest::blocking::Client, origin: &str) -> Result<String, String> {
-    let html = client
+    let response = client
         .get(format!("{origin}/"))
         .send()
-        .map_err(|error| format!("Could not reach Hermes: {error}"))?
-        .error_for_status()
-        .map_err(|error| format!("Hermes bootstrap failed: {error}"))?
+        .map_err(|error| format!("Could not reach Hermes: {error}"))?;
+    let html = gateway_security::require_success(response)?
         .text()
         .map_err(|error| format!("Could not read Hermes bootstrap: {error}"))?;
     let marker = "window.__HERMES_SESSION_TOKEN__=";
@@ -32,7 +32,18 @@ fn session_token(client: &reqwest::blocking::Client, origin: &str) -> Result<Str
 }
 
 fn is_loopback(origin: &str) -> bool {
-    origin.contains("127.0.0.1") || origin.contains("localhost") || origin.contains("[::1]")
+    let Ok(parsed) = url::Url::parse(origin) else {
+        return false;
+    };
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return false;
+    }
+    match parsed.host() {
+        Some(url::Host::Domain(host)) => host == "localhost",
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
+    }
 }
 
 /// Whether the origin's host sits in Tailscale's CGNAT range (100.64.0.0/10).
@@ -61,18 +72,17 @@ fn unreachable_hint(origin: &str) -> &'static str {
 }
 
 fn authenticated_get(app: &tauri::AppHandle, origin: &str, path: &str) -> Result<String, String> {
-    let client = reqwest::blocking::Client::builder()
+    let client = gateway_security::client_builder()
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(|error| error.to_string())?;
     let request = client.get(format!("{origin}{path}"));
     if is_loopback(origin) {
-        request
+        let response = request
             .header("X-Hermes-Session-Token", session_token(&client, origin)?)
             .send()
-            .map_err(|error| format!("Hermes request failed: {error}{}", unreachable_hint(origin)))?
-            .error_for_status()
-            .map_err(|error| format!("Hermes rejected the request: {error}"))?
+            .map_err(|error| format!("Hermes request failed: {error}{}", unreachable_hint(origin)))?;
+        gateway_security::require_success(response)?
             .text()
             .map_err(|error| format!("Could not read Hermes response: {error}"))
     } else {
@@ -88,9 +98,7 @@ fn authenticated_get(app: &tauri::AppHandle, origin: &str, path: &str) -> Result
                 .send()
                 .map_err(|error| format!("Hermes retry failed after token refresh: {error}"))?;
         }
-        response
-            .error_for_status()
-            .map_err(|error| format!("Hermes rejected the request: {error}"))?
+        gateway_security::require_success(response)?
             .text()
             .map_err(|error| format!("Could not read Hermes response: {error}"))
     }
@@ -122,7 +130,7 @@ fn hermes_connection_probe(base_url: String) -> Result<String, String> {
     if !(origin.starts_with("https://") || origin.starts_with("http://")) {
         return Err("Enter a full http:// or https:// Hermes gateway URL".to_string());
     }
-    let response = reqwest::blocking::Client::builder()
+    let response = gateway_security::client_builder()
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| error.to_string())?
@@ -138,23 +146,7 @@ fn hermes_connection_probe(base_url: String) -> Result<String, String> {
                 }
             )
         })?;
-    let status = response.status();
-    let body = response.text().unwrap_or_default();
-    if !status.is_success() {
-        let detail = serde_json::from_str::<serde_json::Value>(&body)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("detail")
-                    .and_then(|detail| detail.as_str())
-                    .map(str::to_string)
-            })
-            .unwrap_or_else(|| "No diagnostic was returned by the gateway.".to_string());
-        return Err(format!(
-            "Gateway returned HTTP {status}: {detail} Check the URL, Hermes host binding, and reverse-proxy/Tailscale configuration."
-        ));
-    }
-    Ok(body)
+    Ok(gateway_security::require_success(response)?.text().unwrap_or_default())
 }
 
 #[tauri::command]
@@ -205,19 +197,18 @@ fn authenticated_post_with_timeout(
     body: serde_json::Value,
     timeout: Duration,
 ) -> Result<String, String> {
-    let client = reqwest::blocking::Client::builder()
+    let client = gateway_security::client_builder()
         .timeout(timeout)
         .build()
         .map_err(|error| error.to_string())?;
     let token = session_token(&client, origin)?;
-    client
+    let response = client
         .post(format!("{origin}{path}"))
         .header("X-Hermes-Session-Token", token)
         .json(&body)
         .send()
-        .map_err(|error| format!("Hermes request failed: {error}"))?
-        .error_for_status()
-        .map_err(|error| format!("Hermes rejected the request: {error}"))?
+        .map_err(|error| format!("Hermes request failed: {error}"))?;
+    gateway_security::require_success(response)?
         .text()
         .map_err(|error| format!("Could not read Hermes response: {error}"))
 }
@@ -246,7 +237,7 @@ fn authenticated_post_for_app(
     if is_loopback(origin) {
         return authenticated_post(origin, path, body);
     }
-    let client = reqwest::blocking::Client::builder()
+    let client = gateway_security::client_builder()
         .timeout(Duration::from_secs(120))
         .build()
         .map_err(|error| error.to_string())?;
@@ -265,18 +256,9 @@ fn authenticated_post_for_app(
             .send()
             .map_err(|error| format!("Hermes retry failed after token refresh: {error}"))?;
     }
-    let status = response.status();
-    let text = response
+    gateway_security::require_success(response)?
         .text()
-        .map_err(|error| format!("Could not read Hermes response: {error}"))?;
-    if !status.is_success() {
-        let detail = serde_json::from_str::<serde_json::Value>(&text)
-            .ok()
-            .and_then(|value| value.get("detail").and_then(|detail| detail.as_str()).map(str::to_string))
-            .unwrap_or_else(|| text.trim().to_string());
-        return Err(format!("Hermes rejected task creation (HTTP {status}): {detail}"));
-    }
-    Ok(text)
+        .map_err(|error| format!("Could not read Hermes response: {error}"))
 }
 
 #[tauri::command]
@@ -342,19 +324,18 @@ fn hermes_trigger_cron(
 }
 
 fn authenticated_put(origin: &str, path: &str, body: serde_json::Value) -> Result<String, String> {
-    let client = reqwest::blocking::Client::builder()
+    let client = gateway_security::client_builder()
         .timeout(Duration::from_secs(120))
         .build()
         .map_err(|error| error.to_string())?;
     let token = session_token(&client, origin)?;
-    client
+    let response = client
         .put(format!("{origin}{path}"))
         .header("X-Hermes-Session-Token", token)
         .json(&body)
         .send()
-        .map_err(|error| format!("Hermes request failed: {error}"))?
-        .error_for_status()
-        .map_err(|error| format!("Hermes rejected the request: {error}"))?
+        .map_err(|error| format!("Hermes request failed: {error}"))?;
+    gateway_security::require_success(response)?
         .text()
         .map_err(|error| format!("Could not read Hermes response: {error}"))
 }
@@ -465,7 +446,7 @@ fn open_microphone_settings() -> Result<(), String> {
 #[tauri::command]
 fn hermes_ws_url(app: tauri::AppHandle, base_url: String) -> Result<String, String> {
     let origin = server_origin(&base_url);
-    let client = reqwest::blocking::Client::builder()
+    let client = gateway_security::client_builder()
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| error.to_string())?;
@@ -570,6 +551,38 @@ pub fn run() {
 #[cfg(test)]
 mod reachability_tests {
     use super::*;
+
+    #[test]
+    fn recognises_only_parsed_http_loopback_hosts() {
+        for origin in [
+            "http://localhost:9119",
+            "HTTPS://LOCALHOST/",
+            "http://127.0.0.1:9119",
+            "https://127.42.0.2/api?remote=example.com",
+            "http://[::1]:9119",
+            "https://[0:0:0:0:0:0:0:1]/",
+            "http://user:password@localhost/path",
+        ] {
+            assert!(is_loopback(origin), "{origin}");
+        }
+    }
+
+    #[test]
+    fn rejects_loopback_text_outside_the_host_and_invalid_urls() {
+        for origin in [
+            "", "localhost", "http://", "http://[::1", "http://localhost:bad",
+            "ftp://localhost", "file://localhost/etc/passwd",
+            "http://localhost.evil.example", "http://127.0.0.1.evil.example",
+            "http://localhost@evil.example", "http://127.0.0.1:password@evil.example",
+            "https://evil.example/localhost", "https://evil.example/127.0.0.1",
+            "https://evil.example/?next=http://localhost",
+            "https://evil.example/#http://[::1]",
+            "http://[::1]@evil.example", "http://[::2]", "http://[::ffff:127.0.0.1]",
+            "http://100.64.0.1", "http://192.168.1.10", "http://128.0.0.1",
+        ] {
+            assert!(!is_loopback(origin), "{origin}");
+        }
+    }
 
     #[test]
     fn recognises_tailnet_addresses() {
